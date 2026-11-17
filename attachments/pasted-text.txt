@@ -1,0 +1,544 @@
+ClashIQ — Complete Product & Development Specification
+
+You are acting as a senior full-stack engineer, software architect, product designer, UI/UX specialist, and QA engineer.
+
+Your mission is to research, design, build, test, and deliver a complete, production-ready website called ClashIQ.
+
+This is not a request for a prototype or a landing page. Build a fully functional product.
+
+Work independently, investigate technical uncertainties, make sensible engineering decisions, and solve problems without repeatedly asking me about minor implementation details.
+
+---
+
+1. Product Overview
+
+ClashIQ is a Clash of Clans account comparison and analytics platform.
+
+Users should be able to enter two Clash of Clans player accounts and compare their available statistics, progression, troops, buildings, heroes, and other relevant information side by side.
+
+The product should go beyond displaying statistics. It should analyze account progression, identify strengths and weaknesses, and provide meaningful comparisons.
+
+The entire product must focus exclusively on the Home Village.
+
+Builder Base must be completely excluded from all comparisons, calculations, and interfaces.
+
+---
+
+2. Technology Stack
+
+Use the following technology stack unless your technical research identifies a genuine and documented incompatibility:
+
+- Framework: Next.js with App Router
+- Language: TypeScript
+- Styling: Tailwind CSS
+- UI Components: shadcn/ui, selectively used and customized for ClashIQ's visual identity
+- Charts: Recharts or another suitable lightweight charting library
+- Icons: Lucide
+- Animations: Framer Motion / Motion, used selectively
+- Deployment: Vercel, provided the backend architecture is compatible with the required API infrastructure
+
+Use a modular, maintainable, and scalable project structure.
+
+Use Next.js server-side functionality for sensitive operations.
+
+Never expose API keys, credentials, or secrets in client-side code, public environment variables, or browser bundles.
+
+Database policy
+
+Do not introduce a database in the initial version.
+
+- The website must work without user registration or authentication.
+- Comparison data should be processed without unnecessary permanent storage.
+- Use appropriate caching to reduce repeated API requests.
+- Only introduce additional infrastructure if there is a genuine technical requirement.
+
+---
+
+3. Clash of Clans API Integration — Mandatory RoyaleAPI Proxy
+
+To resolve the official Clash of Clans API IP allowlisting restriction, use the RoyaleAPI Clash of Clans API Proxy as the primary intermediary for all Clash API requests.
+
+The intended architecture is:
+
+ClashIQ Backend → RoyaleAPI Proxy → Official Clash of Clans API
+
+This is the required preferred integration architecture.
+
+Requirements:
+
+1. Route Clash of Clans API requests through the RoyaleAPI proxy instead of sending requests directly from Vercel to Supercell's API.
+2. Research the current RoyaleAPI proxy documentation before implementation.
+3. Verify its correct endpoint, authentication requirements, supported API endpoints, usage restrictions, and availability.
+4. Confirm that the proxy supports all endpoints and data fields required by ClashIQ.
+5. Keep API credentials and sensitive configuration exclusively on the server side.
+6. Implement request timeouts, error handling, caching, and rate-limit handling.
+7. Do not silently fall back to direct Supercell API requests if the proxy fails.
+8. If the proxy has limitations, document them and identify a secure, compatible alternative.
+9. Never use an unknown or untrusted proxy.
+
+Important: RoyaleAPI Proxy is the required preferred architecture for resolving the IP restriction issue. Verify its actual capabilities and limitations before implementation, but do not switch to direct Vercel-to-Supercell requests without a documented technical reason.
+
+---
+
+4. API Research and Data Accuracy
+
+Use the official Clash of Clans API as the primary source of player information, accessed through RoyaleAPI Proxy.
+
+Before implementation:
+
+- Research the official API documentation.
+- Identify all relevant player fields.
+- Determine which information is unavailable through the API.
+- Verify the current game version.
+- Check currently available troops, heroes, hero equipment, pets, buildings, spells, and other relevant entities.
+- Do not rely on outdated game data or obsolete API fields.
+
+Non-negotiable rules:
+
+- Never fabricate player statistics.
+- Never assume missing information is zero.
+- Never guess troop or building levels.
+- Clearly distinguish official API data from uploaded export data.
+- Display Missing Data or Unavailable when information cannot be obtained.
+- Show the last successful update time where appropriate.
+- Handle incomplete API responses without breaking the entire interface.
+
+---
+
+5. Two-Player Comparison System
+
+The core feature is comparing two player accounts.
+
+Users enter:
+
+- Player A
+- Player B
+
+Validate both Player Tags, retrieve their available information, and present the accounts side by side.
+
+Required functionality:
+
+- Swap Player A and Player B.
+- Display player profiles.
+- Show differences between comparable statistics.
+- Identify category winners only when the available data supports a valid comparison.
+- Handle invalid Player Tags.
+- Handle API failures.
+- Show loading states.
+- Prevent duplicate requests.
+
+Comparison categories
+
+Investigate and implement every relevant category that is actually available through the official API or supported export system.
+
+At minimum, investigate:
+
+- Player Profile
+- Town Hall Level
+- Experience Level
+- Trophies
+- Best Trophies
+- War Stars
+- Attack Wins
+- Defense Wins
+- Clan Information
+- Achievements
+- Buildings
+- Walls
+- Traps
+- Troops
+- Super Troops, where supported
+- Heroes
+- Hero Equipment
+- Spells
+- Siege Machines
+- Pets
+
+The final category list must match the current game version and actual data availability.
+
+Do not include unsupported or irrelevant categories merely to make the interface appear more complete.
+
+---
+
+6. Optional Export File Support
+
+The official API does not expose every detail of a Clash of Clans account.
+
+Therefore, support optional account export files to provide additional information, especially buildings, walls, and traps.
+
+Requirements:
+
+- Each player must have an independent optional upload field.
+- Export files must not be mandatory.
+- The website must remain fully functional without uploaded files.
+- Support separate export files for both players.
+- Research actual available export formats before implementing the parser.
+- Do not assume that Supercell provides a universal official JSON export format for complete account data.
+- Validate file structure, supported format, and player association whenever possible.
+- Reject invalid or unsupported files with useful error messages.
+- Prefer browser-side processing whenever practical.
+- Do not send private account data to unnecessary external services.
+
+Incomplete export scenarios
+
+- No export files: perform the normal API-based comparison.
+- Two valid export files: compare the additional available information.
+- Only one export file: display that player's available information and show Missing Data for the other player.
+- Never fabricate missing information or declare a winner when the comparison is not supported by the available data.
+
+Clearly label every data source:
+
+- Official API
+- Uploaded Export
+
+---
+
+7. Account Strength Analysis
+
+Create a dedicated Account Strength Analysis section.
+
+This section must evaluate actual account progression and relative strength instead of simply declaring the account with the higher Town Hall the winner.
+
+Include:
+
+- Offensive Strength
+- Defensive Strength
+- Troop Progress
+- Hero Progress
+- Hero Equipment Progress
+- Spell Progress
+- Building Progress
+- Overall Account Progress
+- Town Hall-relative Progress
+- Strengths and Weaknesses
+
+Scoring methodology
+
+Build a transparent and explainable scoring system.
+
+Rules:
+
+1. A higher Town Hall level does not automatically mean a stronger account.
+2. Evaluate account progression relative to the maximum levels available at that account's Town Hall.
+3. Use reasonable and explainable category weights.
+4. Never compare raw levels without considering Town Hall progression.
+5. Never treat missing information as zero.
+6. Missing information must affect analysis confidence and data coverage, not automatically reduce the player's score.
+7. Explain how each score is calculated.
+8. Never present internally calculated scores as official Supercell statistics.
+
+Display data coverage and analysis confidence alongside account scores.
+
+When information is insufficient, show Incomplete or Insufficient Data instead of misleading precision.
+
+---
+
+8. Charts and Data Visualization
+
+Use appropriate visualizations to make differences easy to understand.
+
+Consider:
+
+- Radar charts for category comparisons.
+- Horizontal bars for troop, hero, spell, and building levels.
+- Progress bars for account progression.
+- Category-level progress percentages.
+- Level differences.
+- Category winner indicators.
+- Overall comparison summaries.
+
+Do not overload the interface with unnecessary charts.
+
+Every chart must communicate meaningful information and remain readable on mobile devices.
+
+Never display a false winner when the underlying data is incomplete or incomparable.
+
+---
+
+9. Visual Identity and Design Direction
+
+Create a distinctive and professional visual identity for ClashIQ.
+
+The website must not look like a generic AI-generated SaaS dashboard.
+
+Avoid:
+
+- Repetitive purple and blue gradients.
+- Excessively rounded cards.
+- Generic hero sections.
+- Unnecessary shadows.
+- Excessive decorative elements.
+- Unnecessary animations.
+- Repetitive layouts across every section.
+
+The visual identity should feel like a professional gaming analytics platform while maintaining its own original design language.
+
+Homepage
+
+Include:
+
+- ClashIQ branding and logo.
+- A clear introduction.
+- Two Player Tag input fields.
+- A prominent Compare button.
+- Optional export upload controls for each player.
+- A concise explanation of how the comparison works.
+- An attractive preview of the comparison experience.
+- A clean footer.
+
+Comparison interface
+
+- Make both player profiles visually prominent.
+- Give Player A and Player B distinct visual identities.
+- Make statistical differences easy to understand.
+- Clearly identify missing information.
+- Identify the source of each piece of data.
+- Provide a way to swap the players.
+
+Use relevant Clash of Clans visual assets where appropriate and legally permissible.
+
+---
+
+10. UX, Accessibility, and Responsive Design
+
+Support:
+
+- Persian and English.
+- Correct RTL layout for Persian.
+- Correct LTR layout for English.
+- Dark mode and light mode.
+- Responsive layouts.
+- Mobile-first design.
+- Accessible contrast.
+- Readable typography.
+- Keyboard navigation.
+- Appropriate loading, error, empty, and success states.
+
+Mobile usability is essential.
+
+Do not simply shrink the desktop layout. Design the mobile comparison experience intentionally.
+
+---
+
+11. Performance and Reliability
+
+Implement:
+
+- Appropriate caching.
+- Duplicate request prevention.
+- Rate-limit handling.
+- Loading indicators.
+- Error handling.
+- Input validation.
+- File validation.
+- Graceful handling of missing fields.
+- Efficient rendering.
+- A sensible component architecture.
+
+Avoid unnecessary API requests and dependencies.
+
+Keep sensitive credentials exclusively on the server.
+
+---
+
+12. Code Quality and Project Structure
+
+Write clean, modular, maintainable TypeScript code.
+
+Requirements:
+
+- Clear separation of frontend and backend responsibilities.
+- Reusable components.
+- Separate comparison and scoring logic.
+- Centralized API handling.
+- Strong types for API responses and internal data models.
+- Proper error handling.
+- No unnecessary code duplication.
+- No oversized components containing the entire application.
+- No hardcoded API credentials.
+
+Include:
+
+- ".env.example"
+- A useful "README.md"
+- Installation instructions.
+- API configuration instructions.
+- Deployment instructions.
+- Scoring methodology documentation.
+- Supported export formats and their limitations.
+
+---
+
+13. Testing and Quality Assurance
+
+Do not consider the project complete just because it builds successfully.
+
+Run and test the actual application.
+
+At minimum, test:
+
+- Valid Player Tags.
+- Invalid Player Tags.
+- Two valid players.
+- API failures.
+- Rate limits.
+- Missing API fields.
+- Different Town Hall levels.
+- Accounts with incomplete data.
+- No export files.
+- One export file.
+- Two export files.
+- Invalid export files.
+- Export/player mismatch where detectable.
+- Missing data handling.
+- Scoring calculations.
+- Mobile layouts.
+- Persian RTL.
+- English LTR.
+- Dark mode.
+- Light mode.
+
+Verify that no category incorrectly declares a winner when information is missing.
+
+Run the application, inspect the actual rendered UI, and fix visual and usability issues.
+
+Do not rely only on isolated component screenshots. Review the entire user journey, from entering two Player Tags to viewing the final comparison.
+
+---
+
+14. Mandatory Custom Skills
+
+You have access to custom development and design skills.
+
+Use relevant skills throughout the project without waiting for me to explicitly request them.
+
+Required skills
+
+1. full-stack-project-auditor
+
+- Architecture review.
+- Code quality.
+- Security.
+- Technical risks.
+- Overall project auditing.
+
+2. web-art-direction
+
+- Create a distinctive visual identity.
+- Establish the art direction.
+- Avoid generic AI-generated layouts.
+
+3. ui-ux-expert
+
+- User flows.
+- Information architecture.
+- Usability.
+- Accessibility.
+- Loading and error states.
+
+4. creative-frontend-design
+
+- Creative frontend implementation.
+- Layout composition.
+- Visual details.
+- Interaction design.
+
+5. design-system-architect
+
+- Design tokens.
+- Typography.
+- Color systems.
+- Reusable components.
+- Consistent UI patterns.
+
+6. ui-quality-reviewer
+
+- Inspect the actual rendered application.
+- Identify visual and usability issues.
+- Fix issues instead of merely reporting them.
+
+Use these skills during research, planning, design, implementation, review, and final QA.
+
+---
+
+15. Development Workflow
+
+Follow these phases:
+
+Phase 1 — Research and Technical Planning
+
+- Investigate the official Clash of Clans API.
+- Research RoyaleAPI Proxy documentation.
+- Verify supported endpoints and proxy limitations.
+- Identify available player data.
+- Research export formats.
+- Verify the current game version.
+- Define the final architecture.
+- Identify technical risks.
+
+Phase 2 — Product and Design Planning
+
+- Define the complete user journey.
+- Establish the visual identity.
+- Create the design system.
+- Plan desktop and mobile layouts.
+- Design the comparison and account strength analysis experience.
+
+Phase 3 — Implementation
+
+- Build the complete website.
+- Integrate the Clash API through RoyaleAPI Proxy.
+- Implement export parsing.
+- Implement comparison logic.
+- Implement account strength analysis.
+- Implement charts and visualizations.
+- Implement language and theme support.
+- Implement loading and error states.
+
+Phase 4 — Testing and Review
+
+- Run automated tests.
+- Test real API integration when credentials and access are available.
+- Inspect the actual UI.
+- Test mobile and desktop.
+- Review the scoring methodology.
+- Fix important issues.
+
+Phase 5 — Delivery
+
+Prepare the project for deployment.
+
+Deliver:
+
+- Complete source code.
+- ".env.example".
+- "README.md".
+- Installation instructions.
+- Deployment instructions.
+- Implemented feature summary.
+- Known limitations.
+- Required environment variables.
+
+Never claim a feature is implemented or working unless it has actually been built and tested.
+
+---
+
+16. Final Product Principles
+
+Follow these principles throughout the entire project:
+
+- Data accuracy is more important than displaying more statistics.
+- Missing data is better than fabricated data.
+- A higher Town Hall does not automatically mean a stronger account.
+- The website must remain useful without export files.
+- Export files are optional enhancements, not prerequisites.
+- API data and export data must remain distinguishable.
+- Builder Base is completely out of scope.
+- Mobile usability is essential.
+- The design must be distinctive and polished.
+- The code must be maintainable and extensible.
+- Do not introduce a database without a real requirement.
+- Build the core comparison functionality before decorative features.
+- RoyaleAPI Proxy is the primary integration route for the Clash of Clans API.
+
+Your ultimate goal is to deliver a complete, accurate, fast, professional, and visually distinctive Clash of Clans account comparison and analytics platform — not merely a demo.

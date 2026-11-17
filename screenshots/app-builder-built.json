@@ -1,0 +1,41 @@
+{
+  "url": "http://127.0.0.1:8081/",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "ClashIQ",
+      "hasCanvas": false,
+      "bodyTextLen": 1240,
+      "bodyTextHash": "9e0723d036a76ceb5752a376eb7fd7e6669590616155e2d10c24b25d362a97a2",
+      "bodyTextPrefix": "Compare ClashIQ فارسی Dark HOME VILLAGE ONLY See who is actually",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-built.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "ClashIQ",
+      "hasCanvas": false,
+      "bodyTextLen": 1240,
+      "bodyTextHash": "9e0723d036a76ceb5752a376eb7fd7e6669590616155e2d10c24b25d362a97a2",
+      "bodyTextPrefix": "Compare ClashIQ فارسی Dark HOME VILLAGE ONLY See who is actually",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-built-mobile.png"
+    }
+  },
+  "brandWarnings": [],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/app-builder-built.json",
+  "divergesFromBaseline": true,
+  "baselineReasons": [
+    "desktop: body text replaced (similar length, page start changed)",
+    "mobile: body text replaced (similar length, page start changed)"
+  ]
+}

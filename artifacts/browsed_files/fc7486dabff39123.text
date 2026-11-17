@@ -1,0 +1,2306 @@
+// Variables used by Scriptable.
+// These must be at the very top of the file. Do not edit.
+// icon-color: deep-blue; icon-glyph: hammer;
+
+/*
+ * CoC Upgrade Tracker — Scriptable script
+ *
+ * Unofficial fan project. This material is unofficial and is not endorsed by
+ * Supercell. For more information see Supercell's Fan Content Policy:
+ * www.supercell.com/fan-content-policy
+ *
+ * Credits: item pictures, game data and the free API proxy by ClashKing
+ * (clashk.ing). Optional key route via RoyaleAPI's proxy (cocproxy.royaleapi.dev).
+ *
+ * What it does
+ *   • Reads the Clash of Clans "Data Export" from your clipboard
+ *     (Settings → More Settings → Data Export → Copy)
+ *   • Remembers every account by its player tag (up to as many as you like)
+ *   • Schedules an iPhone notification for every builder / lab / pet /
+ *     Builder Base upgrade, at the exact moment it finishes
+ *   • Draws a home-screen widget (small / medium / large) for all accounts
+ *
+ * How it runs
+ *   • From a Shortcuts automation ("When Clash of Clans is closed")
+ *       → silently imports the clipboard if it holds a new export
+ *   • Tapping the script in Scriptable
+ *       → imports the clipboard (if new), then shows a menu
+ *         (view upgrades, rename accounts, builder count, test alert…)
+ *   • As a widget → shows the dashboard.
+ *       Widget Parameter (optional): an account name, e.g.  Main
+ *       → that widget shows only that account, with every upgrade listed.
+ */
+
+// ───────────────────────── Settings you can change ─────────────────────────
+
+// Send a quick "✅ updated" notification each time an export is imported.
+const CONFIRM_IMPORT = true;
+
+// What tapping a notification or an upgrade row opens.
+// "clashofclans://" opens the game directly.
+const CLASH_URL = "clashofclans://";
+
+// Title shown at the top of every widget.
+const HEADING = "COC UPGRADES";
+
+// Quick-pick names offered when you rename an account.
+const NAME_SUGGESTIONS = []; // e.g. ["Main", "Mini 1", "Mini 2"] — quick picks when renaming
+
+// Optional: fetch fuller item names from ClashKing's public game data.
+// If it can't be reached, the built-in names below are used instead.
+const REMOTE_NAME_URLS = [
+  "https://assets.clashk.ing/static_data.json",
+  "https://assets.clashk.ing/static_data",
+];
+
+// ─────────────────────────── Built-in item names ───────────────────────────
+// Export "data" id → name. Anything missing shows as a generic label.
+const NAMES = {
+  // Home Village buildings
+  1000000: "Army Camp", 1000001: "Town Hall", 1000002: "Elixir Collector",
+  1000003: "Elixir Storage", 1000004: "Gold Mine", 1000005: "Gold Storage",
+  1000006: "Barracks", 1000007: "Laboratory", 1000008: "Cannon",
+  1000009: "Archer Tower", 1000010: "Wall", 1000011: "Wizard Tower",
+  1000012: "Air Defense", 1000013: "Mortar", 1000014: "Clan Castle",
+  1000015: "Builder's Hut", 1000019: "Hidden Tesla", 1000020: "Spell Factory",
+  1000021: "X-Bow", 1000023: "Dark Elixir Drill", 1000024: "Dark Elixir Storage",
+  1000026: "Dark Barracks", 1000027: "Inferno Tower", 1000028: "Air Sweeper",
+  1000029: "Dark Spell Factory", 1000031: "Eagle Artillery", 1000032: "Bomb Tower",
+  1000034: "Builder Hall", 1000046: "Star Laboratory", 1000059: "Workshop",
+  1000067: "Scattershot", 1000068: "Pet House", 1000070: "Blacksmith",
+  1000071: "Hero Hall",
+  // Heroes
+  28000000: "Barbarian King", 28000001: "Archer Queen", 28000002: "Grand Warden",
+  28000003: "Battle Machine", 28000004: "Royal Champion", 28000005: "Battle Copter",
+  28000006: "Minion Prince",
+  // Pets
+  73000000: "L.A.S.S.I", 73000001: "Electro Owl", 73000002: "Mighty Yak",
+  73000003: "Unicorn", 73000011: "Angry Jelly", 73000016: "Sneezy",
+  // Troops & siege machines
+  4000000: "Barbarian", 4000001: "Archer", 4000002: "Goblin", 4000003: "Giant",
+  4000004: "Wall Breaker", 4000005: "Balloon", 4000006: "Wizard", 4000007: "Healer",
+  4000008: "Dragon", 4000009: "P.E.K.K.A", 4000010: "Minion", 4000011: "Hog Rider",
+  4000012: "Valkyrie", 4000013: "Golem", 4000015: "Witch", 4000017: "Lava Hound",
+  4000022: "Bowler", 4000023: "Baby Dragon", 4000024: "Miner",
+  4000051: "Wall Wrecker", 4000052: "Battle Blimp", 4000053: "Yeti",
+  4000058: "Ice Golem", 4000059: "Electro Dragon", 4000062: "Stone Slammer",
+  4000065: "Dragon Rider", 4000075: "Siege Barracks", 4000082: "Headhunter",
+  4000087: "Log Launcher", 4000091: "Flame Flinger", 4000092: "Battle Drill",
+  4000095: "Electro Titan", 4000097: "Apprentice Warden", 4000110: "Root Rider",
+  4000123: "Druid", 4000132: "Thrower", 4000135: "Troop Launcher", 4000150: "Furnace",
+  // Spells
+  26000000: "Lightning Spell", 26000001: "Healing Spell", 26000002: "Rage Spell",
+  26000003: "Jump Spell", 26000005: "Freeze Spell", 26000009: "Poison Spell",
+  26000010: "Earthquake Spell", 26000011: "Haste Spell", 26000016: "Clone Spell",
+  26000017: "Skeleton Spell", 26000028: "Bat Spell", 26000035: "Invisibility Spell",
+  26000053: "Recall Spell", 26000070: "Overgrowth Spell", 26000098: "Revive Spell",
+};
+
+const BUILDERS_HUT = 1000015, TOWN_HALL = 1000001, BUILDER_HALL = 1000034;
+
+// Categories: builder (home builders, incl. heroes), lab, pets, bb (Builder Base / Master Builder), starlab, other
+const CAT = {
+  builder: { emoji: "🔨", generic: "Building upgrade", free: "Builder free" },
+  lab:     { emoji: "⚗️", generic: "Lab research",     free: "Laboratory free" },
+  pets:    { emoji: "🐾", generic: "Pet upgrade",      free: "Pet House free" },
+  bb:      { emoji: "🛠️", generic: "Builder Base upgrade", free: "Master Builder free" },
+  starlab: { emoji: "🔭", generic: "Star Lab research", free: "Star Laboratory free" },
+  other:   { emoji: "⏱️", generic: "Upgrade",          free: "Upgrade finished" },
+};
+
+// ─────────────────────────────── Storage ───────────────────────────────────
+
+const NOTIF_PREFIX = "coc-tracker|";
+const MAX_NOTIFS = 55; // iOS keeps at most 64 pending per app
+
+let fm, DIR, DB_PATH, NAMES_CACHE_PATH;
+function initStorage() {
+  fm = FileManager.local();
+  DIR = fm.joinPath(fm.documentsDirectory(), "coc-tracker");
+  if (!fm.fileExists(DIR)) fm.createDirectory(DIR, true);
+  DB_PATH = fm.joinPath(DIR, "accounts.json");
+  NAMES_CACHE_PATH = fm.joinPath(DIR, "names-cache.json");
+  SETTINGS_PATH = fm.joinPath(DIR, "settings.json");
+  WARS_PATH = fm.joinPath(DIR, "wars.json");
+  initIcons();
+}
+
+function loadDB() {
+  try {
+    if (fm.fileExists(DB_PATH)) {
+      const db = JSON.parse(fm.readString(DB_PATH));
+      if (db && db.accounts) {
+        // Older versions didn't store upgrade lengths: count from the last sync.
+        for (const a of Object.values(db.accounts))
+          (a.items || []).forEach((it, i) => {
+            // Older versions put upgrades of geared-up buildings under Builder Base.
+            if (it.gear && it.src === "buildings") { it.gear = false; it.geared = true; it.cat = "builder"; }
+            if (!it.dur && a.lastExport) it.dur = Math.max(it.end - a.lastExport, knownDuration(it, it.end - a.lastExport));
+            if (!it.uid) it.uid = `${it.id}_${it.to}_x${i}`;
+          });
+        return db;
+      }
+    }
+  } catch (e) { /* fall through */ }
+  return { accounts: {} };
+}
+function saveDB(db) { fm.writeString(DB_PATH, JSON.stringify(db)); }
+
+let REMOTE_NAMES = {}, REMOTE_DURS = {}, REMOTE_ICONS = {}, REMOTE_SECT = {};
+const CACHE_VERSION = 4;
+function loadNameCache() {
+  try {
+    if (fm.fileExists(NAMES_CACHE_PATH)) {
+      const c = JSON.parse(fm.readString(NAMES_CACHE_PATH));
+      REMOTE_NAMES = c.names || {};
+      REMOTE_DURS = c.durs || {};
+      REMOTE_ICONS = c.icons || {};
+      REMOTE_SECT = c.sect || {};
+      return c;
+    }
+  } catch (e) { }
+  return null;
+}
+
+// Best-effort: refresh names from ClashKing at most once a week.
+async function refreshRemoteNames() {
+  const cache = loadNameCache();
+  if (cache && cache.v === CACHE_VERSION && Date.now() - cache.fetched < 7 * 864e5) return;
+  for (const url of REMOTE_NAME_URLS) {
+    try {
+      const req = new Request(url);
+      req.timeoutInterval = 8;
+      const data = await req.loadJSON();
+      const names = {}, durs = {};
+      REMOTE_ICONS = {}; REMOTE_SECT = {};
+      collectNames(data, names, durs, 0, null);
+      if (Object.keys(names).length > 50) {
+        REMOTE_NAMES = names; REMOTE_DURS = durs;
+        fm.writeString(NAMES_CACHE_PATH, JSON.stringify({ v: CACHE_VERSION, fetched: Date.now(), names, durs, icons: REMOTE_ICONS, sect: REMOTE_SECT }));
+        return;
+      }
+    } catch (e) { /* try next / ignore */ }
+  }
+  // Remember the failed attempt so we don't retry on every run.
+  fm.writeString(NAMES_CACHE_PATH, JSON.stringify({ v: CACHE_VERSION, fetched: Date.now(), names: REMOTE_NAMES, durs: REMOTE_DURS, icons: REMOTE_ICONS, sect: REMOTE_SECT }));
+}
+function collectNames(node, out, durs, depth, sect) {
+  if (!node || typeof node !== "object" || depth > 6) return;
+  if (Array.isArray(node)) { for (const n of node) collectNames(n, out, durs, depth + 1, sect); return; }
+  const id = Number(node._id ?? node.id);
+  if (id > 999999 && typeof node.name === "string" && !out[id]) {
+    out[id] = node.name;
+    if (sect) REMOTE_SECT[id] = sect; // which category the game data files it under
+    // Any picture link the data carries for this item.
+    for (const [k, v] of Object.entries(node))
+      if (typeof v === "string" && /\.(webp|png)(\?|$)/i.test(v) && /icon|image|img|url/i.test(k)) { REMOTE_ICONS[id] = v; break; }
+    // Upgrade durations per level, if the data has them (used for progress bars).
+    if (Array.isArray(node.levels)) {
+      const m = {};
+      node.levels.forEach((lv, i) => {
+        if (!lv || typeof lv !== "object") return;
+        const level = Number(lv.level ?? lv.lvl ?? i + 1);
+        const k = Object.keys(lv).find(k => /(upgrade|build|research).*time/i.test(k) && typeof lv[k] === "number");
+        if (k && lv[k] > 0) m[level] = lv[k];
+      });
+      if (Object.keys(m).length) durs[id] = m;
+    }
+  }
+  for (const [k, v] of Object.entries(node))
+    if (v && typeof v === "object") collectNames(v, out, durs, depth + 1, depth === 0 ? k : sect);
+}
+
+// Total length of an upgrade (ms), for the progress bar.
+function knownDuration(it, remaining) {
+  const m = REMOTE_DURS[it.id];
+  if (!m) return 0;
+  const cands = [m[it.to], m[it.lvl]].filter(x => x > 0).map(x => x * 1000);
+  const ok = cands.filter(d => d >= remaining - 60000).sort((a, b) => a - b);
+  return ok[0] || 0;
+}
+
+function itemName(it) {
+  return NAMES[it.id] || REMOTE_NAMES[it.id] || CAT[it.cat].generic;
+}
+function itemLabel(it) {
+  let s = `${itemName(it)} → Lv ${it.to}`;
+  if (it.gear) s = `${itemName(it)} (Gear Up)`;
+  if (it.sc) s = `${itemName(it)} (Supercharge)`;
+  return s;
+}
+
+// ─────────────────────────────── Parsing ───────────────────────────────────
+
+function classify(key) {
+  const k = String(key).toLowerCase();
+  const bb = /2$/.test(k);
+  if (/^(units|troops|spells|siege)/.test(k)) return bb ? "starlab" : "lab";
+  if (/^pets/.test(k)) return "pets";
+  if (/^(buildings|traps|heroes|walls|guardians)/.test(k)) return bb ? "bb" : "builder";
+  return bb ? "bb" : "other";
+}
+
+// Returns null if the text is not a CoC village export.
+function parseExport(text) {
+  if (!text || typeof text !== "string") return null;
+  const t = text.trim();
+  if (!t.startsWith("{") || t.indexOf('"tag"') < 0) return null;
+  let j;
+  try { j = JSON.parse(t); } catch (e) { return null; }
+  if (!j || typeof j !== "object" || typeof j.tag !== "string") return null;
+
+  let ts = Number(j.timestamp);
+  if (!ts) ts = Math.floor(Date.now() / 1000);
+  if (ts > 1e12) ts = Math.floor(ts / 1000); // tolerate milliseconds
+
+  const items = [];
+  let huts = 0, th = null, bh = null;
+
+  for (const [key, val] of Object.entries(j)) {
+    if (!Array.isArray(val)) continue;
+    const baseCat = classify(key);
+    for (const row of val) {
+      if (!row || typeof row !== "object") continue;
+      const id = Number(row.data);
+      const lvl = Number(row.lvl) || 0;
+      if (key === "buildings") {
+        if (id === BUILDERS_HUT) huts += row.timer ? 1 : (Number(row.cnt) || 1);
+        if (id === TOWN_HALL) th = Math.max(th || 0, lvl);
+      }
+      if (key === "buildings2" && id === BUILDER_HALL) bh = Math.max(bh || 0, lvl);
+
+      const timer = Number(row.timer);
+      if (!timer || timer <= 0) continue;
+      // "gear_up": 1 marks a building that HAS been geared up (permanent), and those
+      // still get normal level upgrades from Home Village builders. So it isn't treated
+      // as a gear-up in progress: the export has no reliable way to tell those apart.
+      const geared = Object.keys(row).some(k => /gear/i.test(k) && row[k]);
+      const gear = false;
+      const sc = Object.keys(row).some(k => /supercharge/i.test(k) && row[k] !== undefined && row[k] !== null);
+      const goblin = Object.keys(row).some(k => /goblin/i.test(k) && row[k]);
+      const ht = Number(row.helper_timer) || 0;
+      items.push({
+        id, lvl, to: lvl + 1, src: key,
+        cat: gear ? "bb" : baseCat,   // gear-ups use the Master Builder
+        gear, geared, sc, goblin,
+        raw: timer,                   // work left at normal speed (seconds)
+        helperAssigned: !!row.helper_recurrent || ht > 0,
+        helperEnd: ht ? (ts + ht) * 1000 : null,
+        end: (ts + timer) * 1000,
+      });
+    }
+  }
+  items.sort((a, b) => a.end - b.end);
+  const seen = {};
+  for (const it of items) { const k = `${it.id}_${it.to}`; seen[k] = (seen[k] || 0) + 1; it.uid = `${k}_${seen[k]}`; }
+
+  // Boosts running at export time: { builder_boost: secondsLeft, lab_boost: ... }
+  const boosts = [], unknownBoosts = {};
+  if (j.boosts && typeof j.boosts === "object")
+    for (const [k, v] of Object.entries(j.boosts)) {
+      const secs = Number(v);
+      if (!(secs > 0)) continue;
+      const kind = boostKind(k);
+      if (kind) boosts.push({ kind, from: ts * 1000, to: (ts + secs) * 1000, key: k });
+      else unknownBoosts[k] = secs;
+    }
+  // Helpers: Builder's Apprentice, Lab Assistant, Alchemist (level + shared cooldown)
+  const helpers = {};
+  for (const h of Array.isArray(j.helpers) ? j.helpers : []) {
+    const name = HELPER_IDS[Number(h.data)];
+    if (!name) continue;
+    helpers[name] = { lvl: Number(h.lvl) || 1, cooldownEnd: h.helper_cooldown ? (ts + Number(h.helper_cooldown)) * 1000 : null };
+  }
+  return { tag: j.tag.toUpperCase(), ts: ts * 1000, th, bh, huts, items, boosts, unknownBoosts, helpers };
+}
+
+// ─────────────────────────────── Accounts ──────────────────────────────────
+
+function defaultName(acc) {
+  const short = acc.tag.replace("#", "").slice(-4);
+  return acc.th ? `TH${acc.th} · ${short}` : acc.tag;
+}
+
+function builderCount(acc) { return acc.builders || acc.huts || null; }
+
+function activeAt(acc, cat, t) {
+  return (acc.items || []).filter(i => i.cat === cat && i.end > t);
+}
+
+function orderedAccounts(db) {
+  return Object.values(db.accounts).sort((a, b) =>
+    (b.th || 0) - (a.th || 0) || (a.name || "").localeCompare(b.name || ""));
+}
+
+function findAccount(db, query) {
+  if (!query) return null;
+  const q = String(query).trim().toLowerCase();
+  if (/^[1-9]$/.test(q)) return orderedAccounts(db)[Number(q) - 1] || null;
+  const accs = orderedAccounts(db);
+  const exact = accs.find(a =>
+    (a.name || "").toLowerCase() === q || a.tag.toLowerCase() === q ||
+    a.tag.toLowerCase() === "#" + q.replace("#", ""));
+  if (exact) return exact;
+  // Forgiving match: ignore spaces, dots and symbols, and allow part of the name
+  // ("rrl8" finds "TH18 · RRL8", "demon claw" finds "GIE DemonClaw").
+  const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const nq = norm(q);
+  if (nq.length < 2) return null;
+  return accs.find(a => norm(a.name) === nq || norm(a.gameName) === nq)
+    || accs.find(a => norm(a.name).includes(nq) || norm(a.gameName).includes(nq)) || null;
+}
+
+// Imports export text. Returns {status: "new"|"updated"|"duplicate"|"invalid", acc}
+async function importExport(text) {
+  const p = parseExport(text);
+  if (!p) return { status: "invalid" };
+  const db = loadDB();
+  const existing = db.accounts[p.tag];
+  if (existing && existing.lastExport && existing.lastExport >= p.ts) {
+    return { status: "duplicate", acc: existing };
+  }
+  const acc = existing || { tag: p.tag, name: null, builders: null };
+  // Work out each upgrade's full length for the progress bars:
+  // keep what we knew from earlier exports, else game data, else time left at first sight.
+  const prev = (existing && existing.items || []).map(x => ({ ...x }));
+  for (const it of p.items) {
+    const remaining = it.raw ? it.raw * 1000 : it.end - p.ts; // work left at normal speed
+    const m = prev.find(q => !q._used && q.id === it.id && q.to === it.to && q.cat === it.cat);
+    if (m) { m._used = true; it.dur = Math.max(m.dur || 0, knownDuration(it, remaining), remaining); }
+    else { it.dur = Math.max(knownDuration(it, remaining), remaining); }
+  }
+  Object.assign(acc, {
+    th: p.th ?? acc.th, bh: p.bh ?? acc.bh, huts: p.huts || acc.huts,
+    items: p.items, lastExport: p.ts, updated: Date.now(),
+    exportTs: p.ts, boostsExport: p.boosts, unknownBoosts: p.unknownBoosts, helpers: p.helpers,
+    manualBoosts: [], // the export is the truth from its timestamp on
+  });
+  recomputeEnds(acc);
+  if (!acc.name) acc.name = defaultName(acc);
+  db.accounts[p.tag] = acc;
+  saveDB(db);
+  await rescheduleAll(db);
+  return { status: existing ? "updated" : "new", acc };
+}
+
+// ───────────────────────────── Notifications ───────────────────────────────
+
+function freeBuildersText(acc, t) {
+  const total = builderCount(acc);
+  const busy = activeAt(acc, "builder", t).length;
+  if (!total) return busy ? `${busy} builder${busy > 1 ? "s" : ""} still busy` : "All builders free";
+  const free = Math.max(0, total - busy);
+  return `${free} of ${total} builders free`;
+}
+
+// Build the list of notifications for all accounts (grouped per account per minute).
+function plannedNotifications(db, now) {
+  const out = [];
+  for (const acc of Object.values(db.accounts)) {
+    const groups = new Map();
+    for (const it of acc.items || []) {
+      if (it.end <= now + 30 * 1000) continue;
+      const key = Math.round(it.end / 60000);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(it);
+    }
+    for (const [key, its] of groups) {
+      const end = Math.max(...its.map(i => i.end));
+      let title, body;
+      if (its.length === 1) {
+        const it = its[0];
+        title = `${acc.name}: ${itemName(it)} done ${CAT[it.cat].emoji}`;
+        body = `${itemLabel(it)} finished. ${CAT[it.cat].free}.`;
+      } else {
+        title = `${acc.name}: ${its.length} upgrades done`;
+        body = its.map(i => `${CAT[i.cat].emoji} ${itemLabel(i)}`).join("\n");
+      }
+      if (its.some(i => i.cat === "builder")) body += `\n🔨 ${freeBuildersText(acc, end + 1)}`;
+      out.push({ id: `${NOTIF_PREFIX}${acc.tag}|${key}`, thread: `coc-${acc.tag}`, title, body, end });
+    }
+  }
+  out.sort((a, b) => a.end - b.end);
+  return out.slice(0, MAX_NOTIFS);
+}
+
+async function rescheduleAll(db) {
+  const pending = await Notification.allPending();
+  const ours = pending.map(n => n.identifier).filter(id => id && id.startsWith(NOTIF_PREFIX));
+  if (ours.length) await Notification.removePending(ours);
+  for (const p of plannedNotifications(db, Date.now())) {
+    const n = new Notification();
+    n.identifier = p.id;
+    n.threadIdentifier = p.thread;
+    n.title = p.title;
+    n.body = p.body;
+    n.sound = "complete";
+    n.openURL = CLASH_URL;
+    n.setTriggerDate(new Date(p.end));
+    await n.schedule();
+  }
+}
+
+async function notifyNow(title, body) {
+  const n = new Notification();
+  n.title = title; n.body = body; n.threadIdentifier = "coc-tracker-status";
+  await n.schedule();
+}
+
+// ─────────────────────────────── Formatting ────────────────────────────────
+
+function fmtLeft(ms) {
+  if (ms <= 0) return "done";
+  const m = Math.ceil(ms / 60000);
+  const d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60), mm = m % 60;
+  if (d) return h ? `${d}d ${h}h` : `${d}d`;
+  if (h) return mm ? `${h}h ${mm}m` : `${h}h`;
+  return `${mm}m`;
+}
+
+function fmtClock(ts) {
+  const df = new DateFormatter();
+  const d = new Date(ts), now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  df.dateFormat = sameDay ? "h:mm a" : "EEE h:mm a";
+  return df.string(d);
+}
+
+function fmtAgo(ts) {
+  const ms = Date.now() - ts;
+  if (ms < 60000) return "just now";
+  return fmtLeft(ms) + " ago";
+}
+
+function summaryLine(acc, now) {
+  const total = builderCount(acc);
+  const b = activeAt(acc, "builder", now);
+  const lab = activeAt(acc, "lab", now);
+  let s = total ? `🔨 ${Math.max(0, total - b.length)}/${total} free` : `🔨 ${b.length} busy`;
+  if (b.length) s += ` · next ${fmtLeft(b[0].end - now)}`;
+  s += lab.length ? ` · ⚗️ ${fmtLeft(lab[0].end - now)}` : " · ⚗️ free";
+  return s;
+}
+
+// ──────────────────────────────── Themes ───────────────────────────────────
+// Pick the default in the menu (🎨 Theme). Any widget can override it by adding
+// the theme to its Parameter, e.g.  1, clash   or   Main | mono
+
+const C_ = (hex, a) => new Color(hex, a === undefined ? 1 : a);
+const THEMES = {
+  elixir: {
+    name: "Elixir Night", style: "bar", shadow: true,
+    bg: [C_("#2d1650"), C_("#120a22")], text: C_("#ffffff"), sub: C_("#e6dcff"), dim: C_("#9a8fb3"),
+    accent: C_("#ffc94d"), free: C_("#56d364"), idle: C_("#ff9f43"),
+    pillBg: C_("#ffffff", 0.12), pillText: C_("#e9dcff"), track: C_("#ffffff", 0.07),
+    sec: { builder: C_("#ffc94d"), lab: C_("#ff7ad9"), pets: C_("#4fe3c1"), bb: C_("#8fb8ff") },
+    fill: { builder: [C_("#b86a00"), C_("#f0a020")], lab: [C_("#a03cff"), C_("#ff5fd2")],
+            pets: [C_("#12b39a"), C_("#5bf0d0")], bb: [C_("#2f6bff"), C_("#7fb2ff")] },
+  },
+  clash: {
+    name: "Clash Classic", style: "bar", shadow: true, gloss: true, tiles: true, dot: true,
+    bg: [C_("#56361f"), C_("#3b2415")], text: C_("#ffffff"), sub: C_("#fff4dc"), dim: C_("#c99a62"),
+    accent: C_("#f6c544"), free: C_("#8fe060"), idle: C_("#ffb347"),
+    pillBg: C_("#f2c03a"), pillText: C_("#4a2a0c"), track: C_("#2a190e"),
+    sec: { builder: C_("#f6c544"), lab: C_("#f6c544"), pets: C_("#f6c544"), bb: C_("#f6c544") },
+    fill: { default: [C_("#a6ec6a"), C_("#5fb52f")] },
+  },
+  royal: {
+    name: "Royal Gold", style: "line", lineH: 4,
+    bg: [C_("#2e3138"), C_("#1b1d22")], text: C_("#f3ead7"), sub: C_("#9c8c6a"), dim: C_("#8c8370"),
+    accent: C_("#d4af37"), free: C_("#7ee787"), idle: C_("#f0883e"),
+    pillBg: C_("#d4af37", 0.15), pillText: C_("#d4af37"), track: C_("#ffffff", 0.08),
+    sec: { builder: C_("#d4af37"), lab: C_("#d4af37"), pets: C_("#d4af37"), bb: C_("#d4af37") },
+    fill: { default: [C_("#a57b25"), C_("#f2d16b")] },
+  },
+  glass: {
+    name: "Liquid Glass", style: "bar",
+    bg: [C_("#56565c"), C_("#2c2c30")], text: C_("#ffffff"), sub: C_("#ffffff", 0.8), dim: C_("#ffffff", 0.55),
+    accent: C_("#ffd76a"), free: C_("#7ee787"), idle: C_("#ffb27a"),
+    pillBg: C_("#ffffff", 0.16), pillText: C_("#ffffff"), track: C_("#ffffff", 0.08),
+    sec: { builder: C_("#ffffff", 0.75), lab: C_("#ffffff", 0.75), pets: C_("#ffffff", 0.75), bb: C_("#ffffff", 0.75) },
+    fill: { default: [C_("#ffffff", 0.16), C_("#ffffff", 0.34)] },
+  },
+  mono: {
+    name: "Minimal Mono", style: "line", lineH: 2, soonGreen: true,
+    bg: [C_("#000000"), C_("#000000")], text: C_("#ffffff"), sub: C_("#6e6e73"), dim: C_("#5a5a5e"),
+    accent: C_("#8e8e93"), free: C_("#34d058"), idle: C_("#ff9f0a"),
+    pillBg: C_("#1c1c1e"), pillText: C_("#8e8e93"), track: C_("#1f1f22"),
+    sec: { builder: C_("#8e8e93"), lab: C_("#8e8e93"), pets: C_("#8e8e93"), bb: C_("#8e8e93") },
+    fill: { default: [C_("#ffffff"), C_("#ffffff")] },
+  },
+  graphite: {
+    name: "Graphite", style: "bar",
+    bg: [C_("#1c1f26"), C_("#121418")], text: C_("#ffffff"), sub: C_("#c9d1d9"), dim: C_("#8b93a1"),
+    accent: C_("#e3b341"), free: C_("#56d364"), idle: C_("#f0883e"),
+    pillBg: C_("#2f343e"), pillText: C_("#c9d1d9"), track: C_("#2a2e37"),
+    sec: { builder: C_("#e3b341"), lab: C_("#e3b341"), pets: C_("#e3b341"), bb: C_("#e3b341") },
+    fill: { default: [C_("#2ea043"), C_("#2ea043")] },
+  },
+};
+const THEME_ORDER = ["elixir", "clash", "royal", "glass", "mono", "graphite"];
+let TH = THEMES.elixir; // active theme while drawing
+
+function findTheme(word) {
+  const w = String(word || "").trim().toLowerCase().replace(/\s+/g, "");
+  if (!w) return null;
+  for (const k of THEME_ORDER) {
+    const n = THEMES[k].name.toLowerCase().replace(/\s+/g, "");
+    if (w === k || w === n || n.startsWith(w) && w.length >= 4) return k;
+  }
+  return null;
+}
+
+// Widget Parameter → { account query, theme key }
+function parseParam(param) {
+  let acct = null, theme = null, prog = null;
+  for (const part of String(param || "").split(/[,|]/)) {
+    const p = part.trim();
+    if (!p) continue;
+    const t = findTheme(p), g = findProg(p);
+    if (t) theme = t; else if (g) prog = g; else acct = p;
+  }
+  return { acct, theme, prog };
+}
+
+// ─────────────────────────────── Settings ──────────────────────────────────
+let SETTINGS_PATH;
+function loadSettings() {
+  try { if (fm.fileExists(SETTINGS_PATH)) return JSON.parse(fm.readString(SETTINGS_PATH)); } catch (e) { }
+  return {};
+}
+function saveSettings(s) { fm.writeString(SETTINGS_PATH, JSON.stringify(s)); }
+
+// ───────────────────────────────── Icons ───────────────────────────────────
+// Unit/building pictures from ClashKing's free asset library (assets.clashk.ing).
+// Downloaded during sync or from the menu, shrunk, and cached on the phone.
+const ICON_BASE = "https://assets.clashk.ing/";
+let ICON_DIR, ICON_INDEX_PATH, ICON_INDEX = {};
+
+function initIcons() {
+  ICON_DIR = fm.joinPath(DIR, "icons");
+  if (!fm.fileExists(ICON_DIR)) fm.createDirectory(ICON_DIR, true);
+  ICON_INDEX_PATH = fm.joinPath(DIR, "icons.json");
+  try { if (fm.fileExists(ICON_INDEX_PATH)) ICON_INDEX = JSON.parse(fm.readString(ICON_INDEX_PATH)); } catch (e) { ICON_INDEX = {}; }
+}
+function saveIconIndex() { fm.writeString(ICON_INDEX_PATH, JSON.stringify(ICON_INDEX)); }
+
+function slug(name) {
+  return name.toLowerCase().replace(/ /g, "_").replace(/\./g, "").replace(/\?/g, "").replace(/’/g, "").replace(/'/g, "");
+}
+const ICON_V = 3; // bump to retry earlier misses
+const UNIT_GROUPS = [4, 26, 28, 73]; // troops, spells, heroes, pets: one picture per item
+function isBuildingLike(it) { return !UNIT_GROUPS.includes(Math.floor(it.id / 1e6)); }
+function iconKey(it) { return isBuildingLike(it) ? `${it.id}_${it.to}` : String(it.id); }
+
+function iconCandidates(it) {
+  const name = NAMES[it.id] || REMOTE_NAMES[it.id] || (CAT[it.cat] && itemName(it) !== CAT[it.cat].generic ? itemName(it) : null);
+  const out = [];
+  const known = REMOTE_ICONS[it.id];
+  if (known) out.push(/^https?:/.test(known) ? known : ICON_BASE + known.replace(/^\//, ""));
+  if (!name) return out;
+  const s = slug(name), s2 = slug(name.replace(/ Spell$/i, ""));
+  // Folder named after the item's category in ClashKing's own data (e.g. "guardians").
+  const sectPaths = [];
+  const sect = REMOTE_SECT[it.id];
+  if (sect) {
+    for (const f of [...new Set([sect, sect.replace(/_/g, "-"), sect.toLowerCase()])]) {
+      sectPaths.push(`${ICON_BASE}${f}/${s}/icon.webp`, `${ICON_BASE}${f}/${s}.webp`,
+        `${ICON_BASE}${f}/${s}/level_${it.to}.webp`, `${ICON_BASE}${f}/home-village/${s}/icon.webp`,
+        `${ICON_BASE}${f}/home-village/${s}/level_${it.to}.webp`, `${ICON_BASE}${f}/home-village/${s}.webp`);
+    }
+  }
+  const group = Math.floor(it.id / 1e6);
+  const bb = it.cat === "bb" || it.cat === "starlab";
+  if (group === 1) {
+    const v = bb ? "builder-base" : "home-village";
+    out.push(`${ICON_BASE}buildings/${v}/${s}/level_${it.to}.webp`, `${ICON_BASE}buildings/${v}/${s}/level_${it.lvl || 1}.webp`,
+             `${ICON_BASE}buildings/${v}/${s}/icon.webp`);
+  } else if (group === 4) {
+    out.push(`${ICON_BASE}troops/${s}/icon.webp`, `${ICON_BASE}troops/${s}.webp`);
+  } else if (group === 26) {
+    out.push(`${ICON_BASE}spells/${s}.webp`, `${ICON_BASE}spells/${s2}.webp`, `${ICON_BASE}spells/${s}/icon.webp`);
+  } else if (group === 28) {
+    out.push(`${ICON_BASE}heroes/${s}/icon.webp`, `${ICON_BASE}heroes/${s}.webp`, `${ICON_BASE}heroes/${s}/icon.png`);
+  } else if (group === 73) {
+    out.push(`${ICON_BASE}pets/${s}/icon.webp`, `${ICON_BASE}pets/${s}.webp`);
+  } else if (group === 12) {
+    const v = bb ? "builder-base" : "home-village";
+    out.push(`${ICON_BASE}traps/${v}/${s}/level_${it.to}.webp`, `${ICON_BASE}traps/${v}/${s}/level_${it.lvl || 1}.webp`,
+             `${ICON_BASE}traps/${v}/${s}/icon.webp`, `${ICON_BASE}traps/${s}.webp`);
+  } else {
+    // Newer item types (e.g. Guardians like the Logger): category folder first, then likely folders.
+    const v = bb ? "builder-base" : "home-village";
+    out.push(...sectPaths);
+    out.push(`${ICON_BASE}guardians/${s}/icon.webp`, `${ICON_BASE}guardians/${s}/level_${it.to}.webp`,
+             `${ICON_BASE}guardians/${s}.webp`, `${ICON_BASE}buildings/${v}/${s}/level_${it.to}.webp`,
+             `${ICON_BASE}buildings/${v}/${s}/icon.webp`, `${ICON_BASE}heroes/${s}/icon.webp`,
+             `${ICON_BASE}troops/${s}/icon.webp`);
+  }
+  out.push(...sectPaths);
+  return [...new Set(out)];
+}
+
+function iconPath(it) { return fm.joinPath(ICON_DIR, iconKey(it) + ".png"); }
+function getIcon(it) {
+  try { const p = iconPath(it); if (fm.fileExists(p)) return Image.fromFile(p); } catch (e) { }
+  return null;
+}
+
+// Download missing icons (max `limit` network tries per run). Returns a report.
+async function ensureIcons(items, limit = 30, force = false) {
+  const report = [];
+  let tries = 0;
+  for (const it of items) {
+    const key = iconKey(it);
+    const entry = ICON_INDEX[key];
+    if (!force && fm.fileExists(iconPath(it))) { report.push({ it, ok: true, url: entry && entry.url, cached: true }); continue; }
+    if (!force && entry && entry.fail && entry.v === ICON_V && Date.now() - entry.fail < 3 * 864e5) { report.push({ it, ok: false, tried: entry.tried || [] }); continue; }
+    const tried = [];
+    let ok = false;
+    for (const url of iconCandidates(it)) {
+      if (tries >= limit) break;
+      tries++;
+      tried.push(url.replace(ICON_BASE, ""));
+      try {
+        const req = new Request(url);
+        req.timeoutInterval = 5;
+        const data = await req.load();
+        const code = req.response && req.response.statusCode;
+        if (code && code !== 200) continue;
+        const img = Image.fromData(data);
+        if (!img || !img.size || img.size.width < 4) continue;
+        const dc = new DrawContext();
+        dc.size = new Size(72, 72); dc.opaque = false; dc.respectScreenScale = false;
+        const s = Math.min(72 / img.size.width, 72 / img.size.height);
+        const w = img.size.width * s, h = img.size.height * s;
+        dc.drawImageInRect(img, new Rect((72 - w) / 2, (72 - h) / 2, w, h));
+        fm.writeImage(iconPath(it), dc.getImage());
+        ICON_INDEX[key] = { url };
+        ok = true;
+        report.push({ it, ok: true, url });
+        break;
+      } catch (e) { /* next candidate */ }
+    }
+    if (!ok) { ICON_INDEX[key] = { fail: Date.now(), v: ICON_V, tried }; report.push({ it, ok: false, tried }); }
+  }
+  saveIconIndex();
+  return report;
+}
+
+// ──────────────────────────────── Widget ───────────────────────────────────
+const SECTIONS = [
+  { key: "builder", title: "BUILDERS", cats: ["builder"] },
+  { key: "lab",     title: "LAB",      cats: ["lab"] },
+  { key: "pets",    title: "PETS",     cats: ["pets"] },
+  { key: "bb",      title: "BUILDER BASE", cats: ["bb", "starlab", "other"] },
+];
+const SEC_OF = { builder: "builder", lab: "lab", pets: "pets", bb: "bb", starlab: "bb", other: "bb" };
+
+function shade(t) {
+  if (!TH.shadow) return;
+  t.shadowColor = new Color("#000000", 0.6);
+  t.shadowRadius = 1.5;
+  t.shadowOffset = new Point(0, 1);
+}
+
+function t2(stack, s, size, color, weight) {
+  const t = stack.addText(String(s));
+  t.font = weight === "bold" ? Font.boldSystemFont(size)
+    : weight === "semibold" ? Font.semiboldSystemFont(size)
+    : weight === "heavy" ? Font.heavySystemFont(size)
+    : Font.mediumSystemFont(size);
+  t.textColor = color || TH.text;
+  t.lineLimit = 1;
+  t.minimumScaleFactor = 0.6;
+  return t;
+}
+
+function progressOf(it, now) {
+  if (it.end <= now) return 1;
+  if (!it.dur) return 0;
+  return Math.max(0, Math.min(1, 1 - (it.end - now) / it.dur));
+}
+
+function fillColors(secKey) { return TH.fill[secKey] || TH.fill.default; }
+
+function setBarFill(stack, p, colors) {
+  const g = new LinearGradient();
+  g.startPoint = new Point(0, 0.5);
+  g.endPoint = new Point(1, 0.5);
+  const q = Math.max(0, Math.min(1, p));
+  // colour runs a→b across the filled part, then a hard edge into the track
+  g.colors = [colors[0], colors[1], TH.track, TH.track];
+  g.locations = [0, Math.max(q, 0.0001), Math.min(1, q + 0.001), 1];
+  stack.backgroundGradient = g;
+}
+
+// Glossy game-style bar (Clash Classic), drawn as an image.
+function glossBar(w, h, p, colors) {
+  const dc = new DrawContext();
+  dc.size = new Size(w, h); dc.opaque = false; dc.respectScreenScale = true;
+  const r = h * 0.34;
+  let path = new Path(); path.addRoundedRect(new Rect(0, 0, w, h), r, r);
+  dc.addPath(path); dc.setFillColor(TH.track); dc.fillPath();
+  if (p > 0) {
+    const fw = Math.max(h * 0.9, w * p);
+    path = new Path(); path.addRoundedRect(new Rect(0, 0, fw, h), r, r);
+    dc.addPath(path); dc.setFillColor(colors[1]); dc.fillPath();
+    path = new Path(); path.addRoundedRect(new Rect(1, 1, fw - 2, h * 0.5), r * 0.8, r * 0.8);
+    dc.addPath(path); dc.setFillColor(colors[0]); dc.fillPath();
+    path = new Path(); path.addRoundedRect(new Rect(r * 0.6, 2, Math.max(0, fw - r * 1.2), 2), 1, 1);
+    dc.addPath(path); dc.setFillColor(new Color("#ffffff", 0.35)); dc.fillPath();
+    path = new Path(); path.addRect(new Rect(1, h - 2, fw - 2, 1));
+    dc.addPath(path); dc.setFillColor(new Color("#000000", 0.15)); dc.fillPath();
+  }
+  return dc.getImage();
+}
+
+function soon(it, now) { return TH.soonGreen && it.end > now && it.end - now < 36e5; }
+
+// Live countdown: "1:16:19", or "1d 0:33:44" past a day.
+function addCountdown(stack, end, now, size, color) {
+  const left = end - now;
+  const days = Math.floor(left / 864e5);
+  const target = end - days * 864e5;
+  const r = target - now;
+  let next = target;
+  if (days > 0) {
+    let pre = `${days}d `;
+    if (r < 6e5) pre += "0:0";
+    else if (r < 36e5) { pre += "0:"; next = target - 6e5; }
+    else next = target - 36e5;
+    shade(t2(stack, pre, size, color || TH.text, "bold"));
+  }
+  const d = stack.addDate(new Date(target));
+  d.applyTimerStyle();
+  d.font = Font.boldMonospacedSystemFont(size);
+  d.textColor = color || TH.text;
+  d.leftAlignText();
+  d.lineLimit = 1;
+  d.minimumScaleFactor = 0.6;
+  shade(d);
+  return next;
+}
+
+function addIcon(parent, it, size) {
+  const img = getIcon(it);
+  if (img) {
+    const im = parent.addImage(img);
+    im.imageSize = new Size(size, size);
+    im.cornerRadius = size * 0.22;
+    parent.addSpacer(5);
+  } else if (TH.tiles) {
+    const tile = parent.addStack();
+    tile.size = new Size(size, size); tile.cornerRadius = size * 0.28;
+    tile.backgroundColor = C_("#d9a456"); tile.borderColor = C_("#3a2414"); tile.borderWidth = 1.5;
+    tile.centerAlignContent();
+    t2(tile, itemName(it)[0] || "?", size * 0.5, C_("#3a2414"), "heavy");
+    parent.addSpacer(5);
+  }
+}
+
+function addTimerCol(r, it, now, h, fs, timerW) {
+  const tc = r.addStack();
+  tc.layoutHorizontally();
+  tc.centerAlignContent();
+  tc.size = new Size(timerW, h);
+  if (TH.dot && it.end > now) {
+    const dot = tc.addStack(); dot.size = new Size(8, 8); dot.cornerRadius = 4;
+    dot.backgroundColor = TH.accent; tc.addSpacer(4);
+  }
+  if (it.end <= now) { shade(t2(tc, "✓ Done", fs, TH.free, "heavy")); tc.addSpacer(); return null; }
+  return addCountdown(tc, it.end, now, fs, soon(it, now) ? TH.free : TH.text);
+}
+
+function nameAndLevel(r, it, fs) {
+  if (it.goblin) { const g = r.addStack(); g.setPadding(0, 4, 0, 4); g.cornerRadius = 4; g.borderWidth = 1; g.borderColor = TH.free;
+    t2(g, "GOBLIN", 7, TH.free, "heavy"); r.addSpacer(4); }
+  let name = itemName(it);
+  if (it.gear) name += " (Gear Up)";
+  if (it.sc) name += " ⚡";
+  shade(t2(r, name, fs, TH.text, "bold"));
+  r.addSpacer(4);
+  shade(t2(r, `→ ${it.to}`, fs - 2, TH.sub, "semibold"));
+  r.addSpacer();
+}
+
+// One upgrade, "bar" style: everything inside a progress bar.
+function barRow(parent, it, now, h, fs, timerW, rowW) {
+  const r = parent.addStack();
+  r.layoutHorizontally();
+  r.centerAlignContent();
+  r.size = new Size(0, h);
+  r.cornerRadius = Math.round(h * 0.32);
+  r.setPadding(0, 5, 0, 4);
+  r.url = rowURL(it);
+  const p = progressOf(it, now), colors = fillColors(SEC_OF[it.cat]);
+  if (TH.gloss) r.backgroundImage = glossBar(rowW, h, p, colors);
+  else setBarFill(r, p, colors);
+  r.addSpacer(3);
+  addIcon(r, it, h - 6);
+  nameAndLevel(r, it, fs);
+  return addTimerCol(r, it, now, h, fs, timerW);
+}
+
+// One upgrade, "line" style: text row with a slim bar underneath.
+function lineRow(parent, it, now, h, fs, timerW) {
+  const v = parent.addStack();
+  v.layoutVertically();
+  v.url = rowURL(it);
+  const r = v.addStack();
+  r.layoutHorizontally();
+  r.centerAlignContent();
+  const textH = h - TH.lineH - 3;
+  r.size = new Size(0, textH);
+  addIcon(r, it, Math.min(textH, 16));
+  nameAndLevel(r, it, fs);
+  const rd = addTimerCol(r, it, now, textH, fs, timerW);
+  v.addSpacer(2);
+  const line = v.addStack();
+  line.size = new Size(0, TH.lineH);
+  line.cornerRadius = TH.lineH / 2;
+  line.addSpacer();
+  const colors = soon(it, now) || it.end <= now && TH.soonGreen ? [TH.free, TH.free] : fillColors(SEC_OF[it.cat]);
+  setBarFill(line, progressOf(it, now), colors);
+  return rd;
+}
+
+let CUR_ACC = null; // account being drawn (rows link to its detail pop-up)
+function rowURL(it) { return CUR_ACC ? detailURL(CUR_ACC, it) : CLASH_URL; }
+
+function sectionHeader(parent, title, secKey, right, rightColor, fs, extras) {
+  const h = parent.addStack();
+  h.layoutHorizontally();
+  h.centerAlignContent();
+  shade(t2(h, title, fs, TH.sec[secKey] || TH.accent, "heavy"));
+  h.addSpacer(6);
+  if (extras) extras(h);
+  h.addSpacer();
+  if (right) shade(t2(h, right, fs - 1, rightColor || TH.dim, "semibold"));
+}
+
+function syncPill(parent, acc, fs) {
+  const s = parent.addStack();
+  s.layoutHorizontally();
+  s.centerAlignContent();
+  s.backgroundColor = TH.pillBg;
+  s.cornerRadius = 9;
+  s.setPadding(3, 8, 3, 8);
+  s.url = URLScheme.forRunningScript() + "?action=sync";
+  t2(s, `⟳ ${acc ? fmtAgoShort(acc.lastExport) : "Sync"}`, fs, TH.pillText, "bold");
+}
+
+function fmtAgoShort(ts) {
+  if (!ts) return "never";
+  const ms = Date.now() - ts;
+  if (ms < 60000) return "now";
+  return fmtLeft(ms).split(" ")[0] + " ago";
+}
+
+// iPad widgets are much smaller than the iPad's screen, so they can't be sized from the
+// screen width like on iPhone. Sizes (points) by the iPad's short side.
+function padWidgetSize(family) {
+  const sc = Device.screenSize();
+  const short = Math.min(sc.width, sc.height);
+  const S = short >= 1000 ? 170 : short >= 820 ? 155 : short >= 800 ? 146 : 141;
+  const M = Math.round(S * 2.2);
+  if (family === "small") return { w: S, h: S };
+  if (family === "medium") return { w: M, h: S };
+  if (family === "extraLarge") return { w: Math.round(M * 2.1), h: M };
+  return { w: M, h: M };
+}
+
+function widgetSize(family) {
+  if (typeof Device.isPad === "function" && Device.isPad()) return padWidgetSize(family);
+  const w = Device.screenSize().width;
+  const W = Math.round(w * 0.86);
+  if (family === "small") return { w: Math.round(w * 0.39), h: Math.round(w * 0.39) };
+  if (family === "medium") return { w: W, h: Math.round(w * 0.39) };
+  return { w: W, h: Math.round(w * 0.89) };
+}
+
+function builderStatusText(acc, now) {
+  const busy = activeAt(acc, "builder", now).length;
+  const total = builderCount(acc);
+  if (!total) return { s: `${busy} busy`, c: TH.dim };
+  if (busy > total) { const g = busy - total; return { s: `${total}/${total} busy + ${g > 1 ? g + " Goblins" : "Goblin"}`, c: TH.free }; }
+  const free = total - busy;
+  return free ? { s: `${free} free · ${busy}/${total} busy`, c: TH.free } : { s: `${busy}/${total} busy`, c: TH.dim };
+}
+
+// Full view of one account: every running upgrade, grouped like the game.
+function accountView(w, acc, now, family, pos, reserve = 0) {
+  CUR_ACC = acc;
+  const { w: W, h: Hfull } = widgetSize(family);
+  const H = Hfull - 24 - 13 - reserve;
+  const rowW = W - 24;
+  const inSec = (s) => (acc.items || []).filter(i => s.cats.includes(i.cat)).sort((a, b) => a.end - b.end);
+  const secs = SECTIONS.map(s => ({ ...s, items: inSec(s) }))
+    .filter(s => s.items.length || s.key === "lab" || s.key === "builder");
+
+  const totalRows = secs.reduce((n, s) => n + s.items.length, 0);
+  const lineLike = PROG === "blocks" || (PROG === "bars" && TH.style === "line");
+  const headerH = 22, secH = 15, gap = lineLike || PROG === "heat" ? 4 : 3;
+  let rowH = Math.floor((H - headerH - 4 - secs.length * (secH + gap) - totalRows * gap) / Math.max(1, totalRows));
+  const [minH, maxH] = lineLike ? [20, 30] : PROG === "heat" ? [20, 28] : PROG === "rings" ? [18, 30] : [16, 28];
+  rowH = Math.max(minH, Math.min(maxH, rowH));
+  const maxRows = Math.max(1, Math.floor((H - headerH - 4 - secs.length * (secH + gap)) / (rowH + gap)));
+  const fs = Math.max(10, Math.min(13, Math.round((lineLike ? rowH - 8 : rowH) * 0.5)));
+  const timerW = Math.round(fs * 7.4) + (TH.dot ? 12 : 0);
+
+  const top = w.addStack();
+  top.layoutHorizontally(); top.centerAlignContent();
+  shade(t2(top, HEADING, 9, TH.dim, "heavy"));
+  top.addSpacer();
+  if (pos) shade(t2(top, pos, 9, TH.dim, "heavy"));
+  w.addSpacer(2);
+
+  const hd = w.addStack();
+  hd.layoutHorizontally(); hd.centerAlignContent();
+  shade(t2(hd, acc.name, 15, TH.text, "heavy"));
+  if (!/TH\s?\d/i.test(acc.name)) { hd.addSpacer(6); shade(t2(hd, `TH${acc.th || "?"}`, 12, TH.accent, "heavy")); }
+  hd.addSpacer();
+  syncPill(hd, acc, 10);
+  w.addSpacer(4);
+
+  const avail = H - headerH - 4;
+  if (PROG === "grid") return gridView(w, acc, now, rowW, avail);
+  if (PROG === "tubes") return tubesView(w, acc, now, rowW, avail);
+  if (PROG === "timeline") return timelineView(w, acc, now, rowW, avail);
+  const rowFn = PROG === "rings" ? ringRow : PROG === "blocks" ? blocksRow : PROG === "heat" ? heatRow
+    : TH.style === "line" ? lineRow : barRow;
+
+  let shown = 0;
+  const redraws = [];
+  for (const s of secs) {
+    if (shown >= maxRows) break;
+    let right = null, rc = null;
+    if (s.key === "builder") { const b = builderStatusText(acc, now); right = b.s; rc = b.c; }
+    else if (s.key === "lab" && !activeAt(acc, "lab", now).length) { right = "idle"; rc = TH.idle; }
+    else if (s.key === "lab" && goblinCounts(acc, now).lab) { right = "+ Goblin Researcher"; rc = TH.free; }
+    sectionHeader(w, s.title, s.key, right, rc, 10, (h) => boostPills(h, acc, s.key, now, redraws));
+    w.addSpacer(gap);
+    for (const it of s.items) {
+      if (shown >= maxRows) break;
+      const rd = rowFn(w, it, now, rowH, fs, timerW, rowW);
+      if (rd) redraws.push(rd);
+      w.addSpacer(gap);
+      shown++;
+    }
+  }
+  if (shown < totalRows) t2(w, `+${totalRows - shown} more — tap widget for full list`, 9, TH.dim);
+  return redraws;
+}
+
+// One block per account: next builder + lab.
+function overviewView(w, accs, now, family) {
+  const { h: Hfull } = widgetSize(family);
+  const H = Hfull - 24;
+  const n = Math.min(accs.length, 5);
+  const big = family === "large" || family === "extraLarge";
+  const hd = w.addStack(); hd.layoutHorizontally(); hd.centerAlignContent();
+  shade(t2(hd, HEADING, 14, TH.text, "heavy"));
+  hd.addSpacer();
+  syncPill(hd, null, 10);
+  w.addSpacer(4);
+  const per = Math.floor((H - 24) / n);
+  const rowH = Math.max(16, Math.min(big ? 30 : 24, big ? per - 26 : per - 4));
+  const fs = Math.max(10, Math.min(12, Math.round(rowH * 0.52)));
+  const redraws = [];
+  for (const a of accs.slice(0, n)) {
+    if (big) {
+      const h = w.addStack(); h.layoutHorizontally(); h.centerAlignContent();
+      shade(t2(h, a.name, 13, TH.text, "heavy")); h.addSpacer(5);
+      if (!/TH\s?\d/i.test(a.name)) shade(t2(h, `TH${a.th || "?"}`, 10, TH.accent, "heavy"));
+      h.addSpacer();
+      const wr = warFor(a);
+      if (wr) {
+        shade(t2(h, wr.type === "cwl" ? "⚔️ CWL " : wr.type === "friendly" ? "🤝 " : "⚔️ ", 9.5, TH.accent, "heavy"));
+        redraws.push(addCountdown(h, wr.state === "preparation" && wr.start > now ? wr.start : wr.end, now, 9.5, TH.accent));
+        h.addSpacer(6);
+      }
+      const b = builderStatusText(a, now);
+      shade(t2(h, b.s, 10, b.c, "semibold"));
+      w.addSpacer(2);
+    }
+    const r = w.addStack(); r.layoutHorizontally(); r.centerAlignContent(); r.spacing = 6;
+    if (!big) { const nm = r.addStack(); nm.size = new Size(78, rowH); nm.centerAlignContent(); shade(t2(nm, a.name, fs, TH.text, "heavy")); nm.addSpacer(); }
+    for (const cat of ["builder", "lab"]) {
+      const it = activeAt(a, cat, now)[0];
+      const total = builderCount(a);
+      const freeB = cat === "builder" && total && activeAt(a, "builder", now).length < total;
+      const b = r.addStack(); b.layoutHorizontally(); b.centerAlignContent();
+      b.size = new Size(0, rowH); b.cornerRadius = Math.round(rowH * 0.32); b.setPadding(0, 6, 0, 6);
+      b.url = CLASH_URL;
+      if (freeB || !it) {
+        b.backgroundColor = TH.track;
+        shade(t2(b, cat === "builder" ? "🔨 free" : "⚗️ idle", fs, cat === "builder" ? TH.free : TH.idle, "heavy"));
+        b.addSpacer();
+      } else {
+        setBarFill(b, progressOf(it, now), fillColors(cat));
+        addIcon(b, it, rowH - 6);
+        redraws.push(addCountdown(b, it.end, now, fs));
+      }
+    }
+    w.addSpacer(big ? 8 : 4);
+  }
+  return redraws;
+}
+
+function smallView(w, accs, now) {
+  shade(t2(w, "NEXT DONE", 11, TH.accent, "heavy"));
+  w.addSpacer(5);
+  const all = [];
+  for (const a of accs) for (const it of a.items || []) if (it.end > now) all.push({ a, it });
+  all.sort((x, y) => x.it.end - y.it.end);
+  if (!all.length) { t2(w, "Nothing upgrading", 12, TH.dim); return []; }
+  const redraws = [];
+  for (const { a, it } of all.slice(0, 3)) {
+    shade(t2(w, `${a.name} · ${itemName(it)}`, 10, TH.dim, "semibold"));
+    const r = w.addStack(); r.layoutHorizontally(); r.centerAlignContent();
+    r.size = new Size(0, 18); r.cornerRadius = 6; r.setPadding(0, 6, 0, 4);
+    setBarFill(r, progressOf(it, now), fillColors(SEC_OF[it.cat]));
+    redraws.push(addCountdown(r, it.end, now, 11));
+    w.addSpacer(4);
+  }
+  return redraws;
+}
+
+function buildWidget(db, family, param, themeOverride, progOverride) {
+  const { acct, theme, prog } = parseParam(param);
+  const st = loadSettings();
+  TH = THEMES[themeOverride || theme || st.theme || "elixir"] || THEMES.elixir;
+  PROG = PROGRESS[progOverride || prog || st.progress] ? (progOverride || prog || st.progress) : "bars";
+
+  const w = new ListWidget();
+  const g = new LinearGradient();
+  g.colors = TH.bg; g.locations = [0, 1];
+  g.startPoint = new Point(0, 0); g.endPoint = new Point(1, 1);
+  w.backgroundGradient = g;
+  w.setPadding(12, 12, 12, 12);
+  w.url = URLScheme.forRunningScript();
+  const now = Date.now();
+  const accs = orderedAccounts(db);
+
+  if (!accs.length) {
+    t2(w, "CoC Tracker", 14, TH.accent, "heavy");
+    w.addSpacer(4);
+    const t = w.addText("No accounts yet.\nIn Clash: Settings → More Settings → Data Export → Copy, then close the game.");
+    t.font = Font.systemFont(11); t.textColor = TH.dim;
+    return w;
+  }
+
+  // One account only: show its full view even without a Parameter.
+  const single = findAccount(db, acct) || (accs.length === 1 && family !== "small" ? accs[0] : null);
+  const badParam = acct && !findAccount(db, acct) && accs.length > 1;
+  let redraws = [];
+
+  if (String(family || "").startsWith("accessory")) {
+    for (const a of (single ? [single] : accs).slice(0, family === "accessoryRectangular" ? 3 : 1)) {
+      const total = builderCount(a), b = activeAt(a, "builder", now);
+      const free = total ? Math.max(0, total - b.length) : 0;
+      const r = w.addStack(); r.layoutHorizontally();
+      t2(r, `${a.name} `, 12, Color.white(), "semibold");
+      if (free) t2(r, `🔨 ${free} free`, 12, Color.white(), "semibold");
+      else if (b[0]) { t2(r, "🔨 ", 12, Color.white()); addCountdown(r, b[0].end, now, 12, Color.white()); }
+    }
+    return w;
+  }
+
+  if (single) {
+    const i = accs.indexOf(single);
+    const big = family === "large" || family === "extraLarge";
+    const war = big ? warFor(single) : null;
+    const hl = big ? helperLine(single, now) : null;
+    redraws = accountView(w, single, now, family, accs.length > 1 ? `${i + 1}/${accs.length}` : "", (war ? 36 : 0) + (hl ? 22 : 0));
+    w.addSpacer();
+    if (hl) { const f = w.addStack(); f.layoutHorizontally(); shade(t2(f, hl, 8.5, TH.dim, "semibold")); f.addSpacer(); if (war) w.addSpacer(9); }
+    if (war) redraws.push(warFooter(w, single, war, now, family));
+  } else if (family === "small") redraws = smallView(w, accs, now);
+  else redraws = overviewView(w, accs, now, family);
+  if (badParam && !single) {
+    w.addSpacer(4);
+    const t = t2(w, `Parameter "${acct}" didn't match an account. Use 1–${accs.length} or the account's name.`, 9, TH.idle, "semibold");
+    t.lineLimit = 2;
+  }
+
+  w.addSpacer();
+  let next = now + 15 * 60 * 1000;
+  for (const a of accs) for (const it of a.items || []) if (it.end > now) next = Math.min(next, it.end + 5000);
+  for (const rd of redraws) if (rd && rd > now) next = Math.min(next, rd + 1000);
+  w.refreshAfterDate = new Date(next);
+  return w;
+}
+
+// ─────────────────────────── Progress styles ───────────────────────────────
+// Pick the default in the menu (📊 Progress style). Any widget can override it in
+// its Parameter, e.g.  1, rings   or   Main | clash | timeline
+const PROGRESS = {
+  bars: "Bars (theme default)", rings: "Progress rings", grid: "Tile grid", blocks: "Segmented blocks",
+  tubes: "Elixir tubes", timeline: "Timeline", heat: "Heat bar + %",
+};
+const PROG_ORDER = ["bars", "rings", "grid", "blocks", "tubes", "timeline", "heat"];
+const PROG_ALIASES = { bar: "bars", ring: "rings", tile: "grid", tiles: "grid", block: "blocks", battery: "blocks",
+  tube: "tubes", elixir: "tubes", gantt: "timeline", heatbar: "heat", percent: "heat" };
+let PROG = "bars";
+
+function findProg(word) {
+  const w = String(word || "").trim().toLowerCase().replace(/[^a-z]/g, "");
+  if (!w) return null;
+  if (PROGRESS[w]) return w;
+  if (PROG_ALIASES[w]) return PROG_ALIASES[w];
+  for (const k of PROG_ORDER) if (w.length >= 4 && PROGRESS[k].toLowerCase().replace(/[^a-z]/g, "").startsWith(w)) return k;
+  return null;
+}
+
+function secColor(it) { const c = fillColors(SEC_OF[it.cat]); return c[1]; }
+
+function heatColor(p) {
+  const a = [255, 120, 60], b = [255, 205, 70], c = [70, 210, 110];
+  const [x, y, q] = p < 0.5 ? [a, b, p / 0.5] : [b, c, (p - 0.5) / 0.5];
+  const h = x.map((v, i) => Math.round(v + (y[i] - v) * q).toString(16).padStart(2, "0")).join("");
+  return new Color("#" + h);
+}
+
+// Countdown split in two lines (for narrow spaces): "1d" / "0:05:07"
+function addCountdownV(parent, end, now, size, color) {
+  const left = end - now;
+  const days = Math.floor(left / 864e5);
+  const target = end - days * 864e5;
+  const r = target - now;
+  let next = target;
+  const center = (s) => { const h = parent.addStack(); h.layoutHorizontally(); h.addSpacer(); return h; };
+  if (days > 0) { const h = center(); shade(t2(h, `${days}d`, size, color || TH.text, "bold")); h.addSpacer(); }
+  const h = center();
+  if (days > 0) {
+    let pre = "";
+    if (r < 6e5) pre = "0:0"; else if (r < 36e5) { pre = "0:"; next = target - 6e5; } else next = target - 36e5;
+    if (pre) shade(t2(h, pre, size, color || TH.text, "bold"));
+  }
+  const d = h.addDate(new Date(target));
+  d.applyTimerStyle(); d.font = Font.boldMonospacedSystemFont(size); d.textColor = color || TH.text;
+  d.leftAlignText(); d.lineLimit = 1; d.minimumScaleFactor = 0.5; shade(d);
+  h.addSpacer();
+  return next;
+}
+
+// Ring drawn as an image, with the item's picture (or a letter tile) inside.
+function ringImage(it, p, size, color) {
+  const S = Math.round(size);
+  const dc = new DrawContext();
+  dc.size = new Size(S, S); dc.opaque = false; dc.respectScreenScale = true;
+  const lw = Math.max(2.5, S * 0.1), r = (S - lw) / 2, cx = S / 2, cy = S / 2;
+  const pt = (t) => { const a = -Math.PI / 2 + 2 * Math.PI * t; return new Point(cx + r * Math.cos(a), cy + r * Math.sin(a)); };
+  const arc = (to, col) => {
+    const n = Math.max(2, Math.ceil(72 * to)), pts = [];
+    for (let i = 0; i <= n; i++) pts.push(pt(to * i / n));
+    const path = new Path(); path.addLines(pts);
+    dc.addPath(path); dc.setStrokeColor(col); dc.setLineWidth(lw); dc.strokePath();
+  };
+  arc(1, TH.track.alpha < 0.2 ? new Color(TH.track.hex, 0.18) : TH.track);
+  if (p > 0.004) {
+    arc(Math.min(1, p), color);
+    dc.setFillColor(color);
+    for (const t of [0, Math.min(1, p)]) { const q = pt(t); dc.fillEllipse(new Rect(q.x - lw / 2, q.y - lw / 2, lw, lw)); }
+  }
+  const inner = S - lw * 2 - S * 0.14, off = (S - inner) / 2;
+  const img = getIcon(it);
+  if (img) dc.drawImageInRect(img, new Rect(off, off, inner, inner));
+  else {
+    const path = new Path(); path.addRoundedRect(new Rect(off, off, inner, inner), inner * 0.25, inner * 0.25);
+    dc.addPath(path); dc.setFillColor(color); dc.fillPath();
+    dc.setFont(Font.heavySystemFont(inner * 0.5)); dc.setTextColor(new Color("#000000", 0.55)); dc.setTextAlignedCenter();
+    dc.drawTextInRect(itemName(it)[0] || "?", new Rect(off, off + inner * 0.2, inner, inner));
+  }
+  return dc.getImage();
+}
+
+// A · ring around the picture, % and timer
+function ringRow(parent, it, now, h, fs, timerW) {
+  const r = parent.addStack();
+  r.layoutHorizontally(); r.centerAlignContent(); r.size = new Size(0, h); r.url = rowURL(it);
+  const p = progressOf(it, now);
+  const im = r.addImage(ringImage(it, p, h, secColor(it)));
+  im.imageSize = new Size(h, h);
+  r.addSpacer(6);
+  nameAndLevel(r, it, fs);
+  shade(t2(r, it.end <= now ? "" : `${Math.floor(p * 100)}%`, fs - 2, secColor(it), "heavy"));
+  r.addSpacer(6);
+  return addTimerCol(r, it, now, h, fs, timerW);
+}
+
+// C · battery-style blocks under each row
+function blocksRow(parent, it, now, h, fs, timerW, rowW) {
+  const v = parent.addStack(); v.layoutVertically(); v.url = rowURL(it);
+  const textH = h - 8;
+  const r = v.addStack(); r.layoutHorizontally(); r.centerAlignContent(); r.size = new Size(0, textH);
+  addIcon(r, it, Math.min(textH, 15));
+  nameAndLevel(r, it, fs);
+  const rd = addTimerCol(r, it, now, textH, fs, timerW);
+  v.addSpacer(2);
+  const N = 12, gap = 2, pw = Math.floor((rowW - gap * (N - 1)) / N);
+  const k = Math.round(progressOf(it, now) * N);
+  const row = v.addStack(); row.layoutHorizontally(); row.spacing = gap;
+  for (let i = 0; i < N; i++) {
+    const b = row.addStack(); b.size = new Size(pw, 5); b.cornerRadius = 2;
+    b.backgroundColor = i < k ? secColor(it) : (TH.track.alpha < 0.2 ? new Color(TH.track.hex, 0.12) : TH.track);
+  }
+  return rd;
+}
+
+// F · colour that shifts orange → green, with a % pill
+function heatRow(parent, it, now, h, fs, timerW, rowW) {
+  const p = progressOf(it, now), col = heatColor(p);
+  const v = parent.addStack(); v.layoutVertically(); v.url = rowURL(it);
+  v.cornerRadius = 8; v.backgroundColor = TH.track.alpha < 0.2 ? new Color(TH.track.hex, 0.08) : TH.track;
+  const r = v.addStack(); r.layoutHorizontally(); r.centerAlignContent(); r.size = new Size(rowW, h - 3); r.setPadding(0, 5, 0, 4);
+  addIcon(r, it, Math.min(h - 9, 18));
+  nameAndLevel(r, it, fs);
+  const pill = r.addStack(); pill.backgroundColor = col; pill.cornerRadius = 5; pill.setPadding(1, 5, 1, 5);
+  t2(pill, it.end <= now ? "100%" : `${Math.floor(p * 100)}%`, fs - 3, new Color("#111111"), "heavy");
+  r.addSpacer(6);
+  const rd = addTimerCol(r, it, now, h - 3, fs, timerW);
+  const line = v.addStack(); line.size = new Size(rowW, 3);
+  const g = new LinearGradient(); g.startPoint = new Point(0, 0.5); g.endPoint = new Point(1, 0.5);
+  g.colors = [col, col, new Color("#000000", 0), new Color("#000000", 0)];
+  g.locations = [0, Math.max(p, 0.0001), Math.min(1, p + 0.001), 1];
+  line.backgroundGradient = g;
+  return rd;
+}
+
+function centerRow(parent) { const h = parent.addStack(); h.layoutHorizontally(); h.addSpacer(); return h; }
+
+// B · grid of tiles with big rings
+function gridView(w, acc, now, rowW, Havail) {
+  const items = (acc.items || []).slice().sort((a, b) => a.end - b.end);
+  const redraws = [];
+  if (!items.length) { t2(w, "Nothing upgrading", 12, TH.idle); return redraws; }
+  const n = items.length, cols = n <= 8 ? 4 : n <= 15 ? 5 : 6, gap = 6;
+  let rows = Math.ceil(n / cols);
+  const tileW = Math.floor((rowW - gap * (cols - 1)) / cols);
+  let tileH = Math.floor((Havail - gap * (rows - 1)) / rows);
+  const maxRows = Math.max(1, Math.floor((Havail + gap) / (60 + gap)));
+  if (rows > maxRows) { rows = maxRows; tileH = Math.floor((Havail - gap * (rows - 1)) / rows); }
+  tileH = Math.min(tileH, tileW + 30);
+  const ring = Math.max(22, Math.min(54, tileH - 32, tileW - 14));
+  const fs = tileW < 66 ? 8 : 9;
+  let shown = 0;
+  for (let r = 0; r < rows; r++) {
+    const line = w.addStack(); line.layoutHorizontally(); line.spacing = gap;
+    for (let c = 0; c < cols; c++) {
+      const it = items[r * cols + c];
+      if (!it) break;
+      const t = line.addStack(); t.layoutVertically(); t.size = new Size(tileW, tileH); t.cornerRadius = 12;
+      t.backgroundColor = TH.track.alpha < 0.2 ? new Color(TH.track.hex, 0.07) : TH.track;
+      t.setPadding(5, 2, 4, 2); t.url = rowURL(it);
+      const top = centerRow(t);
+      const im = top.addImage(ringImage(it, progressOf(it, now), ring, secColor(it)));
+      im.imageSize = new Size(ring, ring); top.addSpacer();
+      t.addSpacer(2);
+      const nm = centerRow(t); const nt = shade(t2(nm, itemName(it), fs, TH.text, "bold")) || null; nm.addSpacer();
+      if (it.end <= now) { const d = centerRow(t); shade(t2(d, "✓ Done", fs, TH.free, "heavy")); d.addSpacer(); }
+      else redraws.push(addCountdownV(t, it.end, now, fs, secColor(it)));
+      shown++;
+    }
+    w.addSpacer(gap);
+  }
+  if (shown < n) t2(w, `+${n - shown} more — tap widget for full list`, 9, TH.dim);
+  return redraws;
+}
+
+// D · vertical tubes that fill up
+function tubesView(w, acc, now, rowW, Havail) {
+  const all = (acc.items || []).slice().sort((a, b) => a.end - b.end);
+  const builders = all.filter(i => i.cat === "builder"), others = all.filter(i => i.cat !== "builder");
+  const redraws = [];
+  const hd = w.addStack(); hd.layoutHorizontally(); hd.centerAlignContent();
+  shade(t2(hd, "BUILDERS ", 10, TH.sec.builder || TH.accent, "heavy"));
+  const b = builderStatusText(acc, now); shade(t2(hd, b.s, 9, b.c, "semibold"));
+  hd.addSpacer();
+  if (others.length) shade(t2(hd, "LAB · PETS · BB", 9, TH.dim, "heavy"));
+  w.addSpacer(4);
+  const maxCols = Math.min(12, Math.floor(rowW / 28));
+  const list = builders.concat(others).slice(0, maxCols);
+  if (!list.length) { t2(w, "Nothing upgrading", 12, TH.idle); return redraws; }
+  const divider = builders.length && others.length && list.length > builders.length;
+  const colW = Math.floor((rowW - (divider ? 9 : 0)) / list.length);
+  const tubeW = Math.max(10, Math.min(20, colW - 10));
+  const fs = colW < 34 ? 7.5 : 8.5;
+  const tubeH = Math.max(50, Havail - 16 - 22 - 6 - 26 - 22);
+  const row = w.addStack(); row.layoutHorizontally(); row.topAlignContent();
+  list.forEach((it, i) => {
+    if (divider && i === builders.length) {
+      row.addSpacer(4); const d = row.addStack(); d.size = new Size(1, tubeH + 22); d.backgroundColor = new Color("#ffffff", 0.12); row.addSpacer(4);
+    }
+    const col = row.addStack(); col.layoutVertically(); col.size = new Size(colW, 0); col.url = rowURL(it);
+    const ic = centerRow(col); addIcon(ic, it, Math.min(22, colW - 6)); ic.addSpacer();
+    col.addSpacer(4);
+    const tw = centerRow(col);
+    const tube = tw.addStack(); tube.size = new Size(tubeW, tubeH); tube.cornerRadius = tubeW / 2;
+    const p = progressOf(it, now), c = secColor(it);
+    const g = new LinearGradient(); g.startPoint = new Point(0.5, 1); g.endPoint = new Point(0.5, 0);
+    const track = TH.track.alpha < 0.2 ? new Color(TH.track.hex, 0.1) : TH.track;
+    g.colors = [c, c, track, track]; g.locations = [0, Math.max(p, 0.0001), Math.min(1, p + 0.001), 1];
+    tube.backgroundGradient = g; tw.addSpacer();
+    col.addSpacer(4);
+    if (it.end <= now) { const d = centerRow(col); shade(t2(d, "Done", fs, TH.free, "heavy")); d.addSpacer(); }
+    else redraws.push(addCountdownV(col, it.end, now, fs, TH.text));
+    const nm = centerRow(col); const nt = t2(nm, itemName(it), fs - 0.5, TH.dim, "semibold"); nt.lineLimit = 2; nt.centerAlignText(); nm.addSpacer();
+  });
+  if (all.length > list.length) { w.addSpacer(2); t2(w, `+${all.length - list.length} more — tap widget for full list`, 9, TH.dim); }
+  return redraws;
+}
+
+// E · timeline: everything on one shared clock, sorted by finish
+function timelineView(w, acc, now, rowW, Havail) {
+  const items = (acc.items || []).filter(i => i.end > now).sort((a, b) => a.end - b.end);
+  const redraws = [];
+  shade(t2(w, "FINISH ORDER", 10, TH.accent, "heavy"));
+  w.addSpacer(3);
+  if (!items.length) { t2(w, "Nothing upgrading", 12, TH.idle); return redraws; }
+  const spanDays = Math.max(1, Math.ceil((items[items.length - 1].end - now) / 864e5));
+  const span = spanDays * 864e5;
+  const labelW = 96, trackW = rowW - labelW - 4;
+  const rowH = Math.max(16, Math.min(24, Math.floor((Havail - 34) / items.length) - 2));
+  const maxRows = Math.max(1, Math.floor((Havail - 34) / (rowH + 2)));
+  const fs = rowH < 19 ? 9.5 : 10.5;
+  for (const it of items.slice(0, maxRows)) {
+    const r = w.addStack(); r.layoutHorizontally(); r.centerAlignContent(); r.size = new Size(0, rowH); r.url = rowURL(it);
+    const lab = r.addStack(); lab.layoutHorizontally(); lab.centerAlignContent(); lab.size = new Size(labelW, rowH);
+    addIcon(lab, it, Math.min(14, rowH - 4)); shade(t2(lab, itemName(it), fs, TH.text, "bold")); lab.addSpacer();
+    r.addSpacer(4);
+    const tr = r.addStack(); tr.layoutHorizontally(); tr.centerAlignContent(); tr.size = new Size(trackW, rowH);
+    const fw = Math.max(6, Math.round(trackW * Math.min(1, (it.end - now) / span)));
+    const label = fmtLeft(it.end - now).split(" ")[0];
+    const bar = tr.addStack(); bar.size = new Size(fw, Math.round(rowH * 0.5)); bar.cornerRadius = rowH * 0.25;
+    bar.backgroundColor = secColor(it);
+    if (trackW - fw > 30) { tr.addSpacer(4); shade(t2(tr, label, fs - 1, TH.sub, "bold")); }
+    else { bar.layoutHorizontally(); bar.centerAlignContent(); bar.addSpacer(); t2(bar, label + " ", fs - 1.5, new Color("#111111"), "heavy"); }
+    tr.addSpacer();
+    w.addSpacer(2);
+  }
+  // axis
+  const ax = w.addStack(); ax.layoutHorizontally(); ax.addSpacer(labelW + 4);
+  const step = Math.max(1, Math.ceil(spanDays / 5)), segs = Math.ceil(spanDays / step);
+  const segW = Math.floor(trackW * (step / spanDays));
+  for (let i = 0; i < segs; i++) {
+    const s = ax.addStack(); s.size = new Size(Math.min(segW, trackW - segW * i), 10);
+    t2(s, i === 0 ? "now" : `+${i * step}d`, 8, TH.dim, "semibold"); s.addSpacer();
+  }
+  if (items.length > maxRows) { w.addSpacer(2); t2(w, `+${items.length - maxRows} more — tap widget for full list`, 9, TH.dim); }
+  return redraws;
+}
+
+// ───────────────────────────────── Wars ────────────────────────────────────
+// Clan + current war / CWL war from the official Clash API, via ClashKing's free
+// public proxy (no key needed). Regular wars need the clan's war log to be public.
+const API_BASE = "https://proxy.clashk.ing/v1/";
+const WAR_PREFIX = "coc-war|";
+let WARS_PATH;
+
+const encTag = (t) => encodeURIComponent(t.startsWith("#") ? t : "#" + t);
+function cocTime(s) {
+  const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})/.exec(s || "");
+  return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) : null;
+}
+
+// Sources tried in order: ClashKing's free proxy, then (if you added one) your own
+// official API key through RoyaleAPI's proxy (key must allow IP 45.79.218.79).
+// Your own key (if added) is tried first; ClashKing is skipped for 30 min after it times out.
+let CK_DOWN_UNTIL = 0;
+function apiSources() {
+  const st = loadSettings();
+  const key = (st.apiKey || "").trim();
+  const list = [];
+  if (key) list.push({ base: "https://cocproxy.royaleapi.dev/v1/", key, name: "your API key" });
+  if (Date.now() > Math.max(CK_DOWN_UNTIL, st.ckDownUntil || 0)) list.push({ base: API_BASE, name: "ClashKing" });
+  return list;
+}
+function markClashKingDown() {
+  CK_DOWN_UNTIL = Date.now() + 30 * 60 * 1000;
+  try { const st = loadSettings(); st.ckDownUntil = CK_DOWN_UNTIL; saveSettings(st); } catch (e) { }
+}
+
+async function apiGet(path) {
+  let last = { error: "no source", reason: "ClashKing didn't respond recently; add a backup key or try again in 30 min" };
+  for (const src of apiSources()) {
+    try {
+      const r = new Request(src.base + path);
+      r.timeoutInterval = 8;
+      r.headers = src.key ? { Accept: "application/json", Authorization: "Bearer " + src.key } : { Accept: "application/json" };
+      const raw = await r.loadString();
+      const code = r.response && r.response.statusCode;
+      let j = null;
+      try { j = JSON.parse(raw); } catch (e) { }
+      if ((!code || code === 200) && j && !j.reason) return j;
+      last = { error: code || "bad reply", reason: (j && (j.reason || j.message)) || String(raw || "").slice(0, 90), via: src.name };
+      if (src.key && code === 403 && j && j.reason === "accessDenied.invalidIp") last.reason = "key doesn't allow IP 45.79.218.79";
+      // Real answers from the game's data: not found / private war log. No point asking elsewhere.
+      if (code === 404 || (j && j.reason === "accessDenied")) return last;
+    } catch (e) {
+      last = { error: "network", reason: String(e).slice(0, 90), via: src.name };
+      if (src.name === "ClashKing") markClashKingDown();
+    }
+  }
+  return last;
+}
+
+function loadWars() {
+  try { if (fm.fileExists(WARS_PATH)) return JSON.parse(fm.readString(WARS_PATH)); } catch (e) { }
+  return {};
+}
+function saveWars(w) { fm.writeString(WARS_PATH, JSON.stringify(w)); }
+
+// Player → clan (name, tag, badge). Refreshed every 6 hours.
+async function refreshClan(acc, force) {
+  if (!force && acc.clanChecked && Date.now() - acc.clanChecked < 6 * 36e5) return acc.clan;
+  const p = await apiGet(`players/${encTag(acc.tag)}`);
+  if (p.error) { acc.clanErr = `${p.error}${p.reason ? " · " + p.reason : ""}${p.via ? " (" + p.via + ")" : ""}`; return acc.clan; }
+  acc.clanErr = null;
+  acc.clanChecked = Date.now();
+  acc.clan = p.clan ? { tag: p.clan.tag, name: p.clan.name, badge: p.clan.badgeUrls && p.clan.badgeUrls.small } : null;
+  if (p.name) acc.gameName = p.name;
+  return acc.clan;
+}
+
+// Friendly wars use one of these preparation lengths; regular wars use 23 hours.
+const FRIENDLY_PREP_MIN = [5, 15, 30, 60, 120, 240, 360, 480, 720, 960, 1200, 1440];
+function warType(w, isLeague) {
+  if (isLeague) return "cwl";
+  const prep = (cocTime(w.startTime) - cocTime(w.preparationStartTime)) / 60000;
+  return FRIENDLY_PREP_MIN.some(m => Math.abs(prep - m) < 1) ? "friendly" : "war";
+}
+
+function summarizeWar(w, type, clanTag) {
+  const ours = w.clan && w.clan.tag === clanTag ? w.clan : w.opponent;
+  const theirs = ours === w.clan ? w.opponent : w.clan;
+  const members = {};
+  for (const m of (ours && ours.members) || []) members[m.tag] = (m.attacks || []).length;
+  return {
+    type, state: w.state,
+    prepStart: cocTime(w.preparationStartTime), start: cocTime(w.startTime), end: cocTime(w.endTime),
+    ours: ours ? ours.name : "?", theirs: theirs ? theirs.name : "?",
+    oursStars: ours ? ours.stars || 0 : 0, theirsStars: theirs ? theirs.stars || 0 : 0,
+    perMember: w.attacksPerMember || 1, members,
+  };
+}
+
+// Current war for one clan: regular war first, then CWL.
+async function fetchWar(clanTag) {
+  const out = { fetched: Date.now(), war: null, note: "" };
+  const cw = await apiGet(`clans/${encTag(clanTag)}/currentwar`);
+  if (!cw.error && (cw.state === "inWar" || cw.state === "preparation")) {
+    out.war = summarizeWar(cw, warType(cw, false), clanTag);
+    return out;
+  }
+  if (cw.error === 403 || cw.reason === "accessDenied") out.note = "war log is private (CWL still checked)";
+  else if (cw.error) out.note = `war check failed (${cw.error}${cw.reason ? " · " + cw.reason : ""})`;
+  const g = await apiGet(`clans/${encTag(clanTag)}/currentwar/leaguegroup`);
+  if (g.error || !Array.isArray(g.rounds) || !(g.state === "inWar" || g.state === "preparation")) {
+    if (g.error && g.error !== 404) out.note += ` · CWL check failed (${g.error}${g.reason ? " · " + g.reason : ""})`;
+    else if (!out.note) out.note = "not in war";
+    return out;
+  }
+  let live = null, prep = null, calls = 0;
+  for (const round of g.rounds.slice().reverse()) {
+    const tags = (round.warTags || []).filter(t => t && t !== "#0");
+    for (const t of tags) {
+      if (calls++ > 20) break;
+      const w = await apiGet(`clanwarleagues/wars/${encTag(t)}`);
+      if (w.error || !w.clan || !w.opponent) continue;
+      if (w.clan.tag !== clanTag && w.opponent.tag !== clanTag) continue;
+      if (w.state === "inWar") live = w; else if (w.state === "preparation" && !prep) prep = w;
+      break; // found our clan's war for this round
+    }
+    if (live) break;
+  }
+  const pick = live || prep;
+  if (pick) out.war = summarizeWar(pick, "cwl", clanTag);
+  else out.note = "CWL: no active round";
+  return out;
+}
+
+// Refresh wars for the given accounts' clans (cached ~10 min).
+async function refreshWars(accs, force) {
+  const wars = loadWars();
+  const done = new Set();
+  for (const a of accs) {
+    await refreshClan(a, force);
+    if (!a.clan || done.has(a.clan.tag)) continue;
+    done.add(a.clan.tag);
+    const c = wars[a.clan.tag];
+    if (!force && c && Date.now() - c.fetched < 10 * 60 * 1000) continue;
+    wars[a.clan.tag] = await fetchWar(a.clan.tag);
+  }
+  saveWars(wars);
+  return wars;
+}
+
+function warFor(acc, wars) {
+  if (!acc.clan) return null;
+  const c = (wars || loadWars())[acc.clan.tag];
+  if (!c || !c.war) return null;
+  const w = c.war, now = Date.now();
+  if (w.end && w.end < now) return null;
+  return w;
+}
+function attacksLeft(w, acc) {
+  if (!w || !(acc.tag in w.members)) return null; // not in the lineup
+  return Math.max(0, w.perMember - w.members[acc.tag]);
+}
+function warLabel(w) { return w.type === "cwl" ? "CWL War" : w.type === "friendly" ? "Friendly War" : "War"; }
+
+// Alert X minutes before each active war ends (one per clan).
+async function scheduleWarAlerts(db) {
+  const mins = loadSettings().warAlert ?? 30;
+  const pending = await Notification.allPending();
+  const ours = pending.map(n => n.identifier).filter(id => id && id.startsWith(WAR_PREFIX));
+  if (ours.length) await Notification.removePending(ours);
+  if (!mins) return 0;
+  const wars = loadWars(), now = Date.now();
+  let n = 0;
+  for (const [clanTag, c] of Object.entries(wars)) {
+    const w = c && c.war;
+    if (!w || !w.end) continue;
+    const at = w.end - mins * 60000;
+    if (at <= now + 30000) continue;
+    const accs = orderedAccounts(db).filter(a => a.clan && a.clan.tag === clanTag);
+    const left = accs.map(a => ({ a, l: attacksLeft(w, a) })).filter(x => x.l);
+    const nt = new Notification();
+    nt.identifier = `${WAR_PREFIX}${clanTag}|${w.end}`;
+    nt.threadIdentifier = "coc-war";
+    nt.title = `${w.type === "friendly" ? "🤝" : "⚔️"} ${warLabel(w)} ends in ${mins >= 60 ? fmtLeft(mins * 60000) : mins + " min"}`;
+    nt.body = `${w.ours} vs ${w.theirs} · ★ ${w.oursStars}–${w.theirsStars}` +
+      (left.length ? `\nAttacks left (at last check): ${left.map(x => `${x.a.name} ${x.l}`).join(", ")}` : "");
+    nt.sound = "alert";
+    nt.openURL = CLASH_URL;
+    nt.setTriggerDate(new Date(at));
+    await nt.schedule();
+    n++;
+  }
+  return n;
+}
+
+// Footer strip on an account widget: "⚔️ CWL War: Ours vs Theirs" + countdown.
+function warFooter(w, acc, war, now, family) {
+  if (!war) return null;
+  const prep = war.state === "preparation" && war.start > now;
+  const box = w.addStack();
+  box.layoutHorizontally(); box.centerAlignContent();
+  box.size = new Size(0, 32);      // full width comes from the flexible spacer below
+  box.cornerRadius = 10;
+  box.setPadding(0, 10, 0, 10);
+  box.backgroundColor = TH.track.alpha < 0.2 ? new Color(TH.track.hex, 0.1) : TH.track;
+  box.url = CLASH_URL;
+  shade(t2(box, war.type === "friendly" ? "🤝" : "⚔️", 13)); box.addSpacer(6);
+  const left = box.addStack(); left.layoutVertically();
+  const l1 = left.addStack(); l1.layoutHorizontally();
+  shade(t2(l1, `${warLabel(war)}${prep ? " · prep day" : ""}`, 8.5, TH.accent, "heavy"));
+  const al = attacksLeft(war, acc);
+  if (al !== null && !prep) { l1.addSpacer(5); shade(t2(l1, al ? `${al} attack${al > 1 ? "s" : ""} left` : "attacks done ✓", 8.5, al ? TH.idle : TH.free, "heavy")); }
+  const vs = t2(left, `${war.ours} vs ${war.theirs}`, 11, TH.text, "bold");
+  vs.minimumScaleFactor = 0.55; shade(vs); // long clan names shrink instead of crowding the timer
+  box.addSpacer(); // flexible: stretches the strip to the full widget width
+  // Right column: fixed width, everything flush right.
+  const right = box.addStack(); right.layoutVertically(); right.size = new Size(100, 0);
+  const r1 = right.addStack(); r1.layoutHorizontally(); r1.addSpacer();
+  shade(t2(r1, prep ? "starts in" : `★ ${war.oursStars}–${war.theirsStars} · ends in`, 8.5, TH.dim, "semibold"));
+  const r2 = right.addStack(); r2.layoutHorizontally();
+  const target = prep ? war.start : war.end, remain = target - now;
+  if (remain >= 864e5) {
+    r2.addSpacer();
+    shade(t2(r2, fmtLeft(remain), 11, TH.text, "bold"));
+    return target - Math.floor(remain / 864e5) * 864e5; // redraw when it drops below a day
+  }
+  const d = r2.addDate(new Date(target));
+  d.applyTimerStyle(); d.font = Font.boldMonospacedSystemFont(11); d.textColor = TH.text;
+  d.rightAlignText(); d.lineLimit = 1; d.minimumScaleFactor = 0.7; shade(d);
+  return target;
+}
+
+async function warSettingsFlow() {
+  const opts = [0, 5, 10, 15, 30, 60, 120];
+  const cur = loadSettings().warAlert ?? 30;
+  const a = new Alert();
+  a.title = "War ending alert";
+  a.message = `Get a notification before a war or CWL war ends.\nCurrently: ${cur ? cur + " min before" : "off"}`;
+  for (const m of opts) a.addAction(m ? (m >= 60 ? `${m / 60} hour${m > 60 ? "s" : ""} before` : `${m} min before`) : "Off");
+  a.addAction("Custom…");
+  a.addCancelAction("Cancel");
+  const i = await a.presentSheet();
+  if (i < 0) return;
+  let mins = opts[i];
+  if (i === opts.length) {
+    const t = new Alert(); t.title = "Minutes before the war ends";
+    t.addTextField("e.g. 45", String(cur)); t.addAction("Save"); t.addCancelAction("Cancel");
+    if ((await t.present()) < 0) return;
+    mins = Math.max(0, parseInt(t.textFieldValue(0), 10) || 0);
+  }
+  const st = loadSettings(); st.warAlert = mins; saveSettings(st);
+  await scheduleWarAlerts(loadDB());
+}
+
+async function apiKeyFlow() {
+  const st = loadSettings();
+  const a = new Alert();
+  a.title = "Backup API key (optional)";
+  a.message = "Only needed if war data can't load.\n\n1. Sign in at developer.clashofclans.com\n2. Create a key and enter this IP address: 45.79.218.79\n3. Copy the key and paste it here.";
+  a.addTextField("Paste key", st.apiKey || "");
+  a.addAction("Save"); a.addDestructiveAction("Remove key"); a.addCancelAction("Cancel");
+  const i = await a.present();
+  if (i < 0) return;
+  st.apiKey = i === 0 ? a.textFieldValue(0).trim() : "";
+  saveSettings(st);
+}
+
+async function warTestFlow() {
+  const db = loadDB();
+  const accs = orderedAccounts(db);
+  if (!accs.length) { await info("Nothing to test", "Sync an account first."); return; }
+  CK_DOWN_UNTIL = 0; const st0 = loadSettings(); delete st0.ckDownUntil; saveSettings(st0);
+  const wars = await refreshWars(accs, true);
+  saveDB(db);
+  const n = await scheduleWarAlerts(db);
+  const t = new UITable(); t.showSeparators = true;
+  const h = new UITableRow(); h.isHeader = true; h.height = 60;
+  h.addText("War check", `${n} war alert${n === 1 ? "" : "s"} scheduled · screenshot this for Claude`);
+  t.addRow(h);
+  for (const a of accs) {
+    const r = new UITableRow(); r.height = 92;
+    const c = a.clan ? wars[a.clan.tag] : null, w = warFor(a, wars);
+    const line = !a.clan ? (a.clanErr ? `Lookup failed: ${a.clanErr}` : "Not in a clan")
+      : w ? `${warLabel(w)} · ${w.state} · ${w.ours} vs ${w.theirs} · ends ${fmtClock(w.end)}`
+      : `No active war · ${c ? c.note : "not checked"}`;
+    const cell = r.addText(`${a.name}${a.clan ? "  ·  " + a.clan.name : ""}`, line);
+    cell.subtitleFont = Font.systemFont(11);
+    t.addRow(r);
+  }
+  await t.present(false);
+}
+
+// ───────────────────────────── Boosts & helpers ────────────────────────────
+// The export stores each upgrade's work left at normal speed ("timer", seconds) and
+// the boosts running at export time ("boosts": seconds left). Finish times are worked
+// out here by simulating the speed over time.
+//
+// Speeds stack by adding their extra: Builder Potion 10x (+9), Builder Bite 2x (+1)
+// → 11x together. Research Potion 24x (+23), Study Soup 4x (+3) → 27x. Pet Potion 24x.
+// Builder's Apprentice / Lab Assistant at level N add +N while their 1-hour session
+// runs, and potions don't speed them up.
+const BOOST_TYPES = {
+  builderPotion: { name: "Builder Potion", cat: "builder", extra: 9, emoji: "🧪", short: "Potion" },
+  builderBite:   { name: "Builder Bite",   cat: "builder", extra: 1, emoji: "🍖", short: "Bite" },
+  researchPotion:{ name: "Research Potion", cat: "lab",    extra: 23, emoji: "⚗️", short: "Potion" },
+  studySoup:     { name: "Study Soup",     cat: "lab",     extra: 3, emoji: "🍲", short: "Soup" },
+  petPotion:     { name: "Pet Potion",     cat: "pets",    extra: 23, emoji: "🐾", short: "Potion" },
+};
+const BOOST_ORDER = ["builderPotion", "builderBite", "researchPotion", "studySoup", "petPotion"];
+
+// Real potion / snack pictures from ClashKing's asset library (cached on the phone).
+const BOOST_ICON_PATHS = {
+  builderPotion: ["magic_items/builder_potion.webp", "magic_items/builder_potion.png"],
+  researchPotion: ["magic_items/research_potion.webp", "magic_items/research_potion.png"],
+  petPotion: ["magic_items/pet_potion.webp", "magic_items/pet_potion.png"],
+  builderBite: ["magic_items/builder_bite.webp", "magic_snacks/builder_bite.webp", "snacks/builder_bite.webp", "magic_items/snacks/builder_bite.webp"],
+  studySoup: ["magic_items/study_soup.webp", "magic_snacks/study_soup.webp", "snacks/study_soup.webp", "magic_items/snacks/study_soup.webp"],
+};
+function boostIconPath(kind) { return fm.joinPath(ICON_DIR, `boost_${kind}.png`); }
+function getBoostIcon(kind) {
+  try { const p = boostIconPath(kind); if (fm.fileExists(p)) return Image.fromFile(p); } catch (e) { }
+  return null;
+}
+async function ensureBoostIcons(force) {
+  const report = [];
+  for (const kind of BOOST_ORDER) {
+    const key = `boost_${kind}`, entry = ICON_INDEX[key];
+    if (!force && fm.fileExists(boostIconPath(kind))) { report.push({ kind, ok: true, url: entry && entry.url }); continue; }
+    if (!force && entry && entry.fail && Date.now() - entry.fail < 3 * 864e5) { report.push({ kind, ok: false }); continue; }
+    let ok = false;
+    for (const rel of BOOST_ICON_PATHS[kind]) {
+      try {
+        const req = new Request(ICON_BASE + rel); req.timeoutInterval = 5;
+        const data = await req.load();
+        const code = req.response && req.response.statusCode;
+        if (code && code !== 200) continue;
+        const img = Image.fromData(data);
+        if (!img || !img.size || img.size.width < 4) continue;
+        const dc = new DrawContext(); dc.size = new Size(64, 64); dc.opaque = false; dc.respectScreenScale = false;
+        const sc = Math.min(64 / img.size.width, 64 / img.size.height), w = img.size.width * sc, h = img.size.height * sc;
+        dc.drawImageInRect(img, new Rect((64 - w) / 2, (64 - h) / 2, w, h));
+        fm.writeImage(boostIconPath(kind), dc.getImage());
+        ICON_INDEX[key] = { url: ICON_BASE + rel }; ok = true;
+        report.push({ kind, ok: true, url: ICON_BASE + rel });
+        break;
+      } catch (e) { }
+    }
+    if (!ok) { ICON_INDEX[key] = { fail: Date.now() }; report.push({ kind, ok: false }); }
+  }
+  saveIconIndex();
+  return report;
+}
+const HELPER_IDS = { 93000000: "apprentice", 93000001: "assistant", 93000002: "alchemist" };
+
+// Which boost a key in the export's "boosts" object is.
+function boostKind(key) {
+  const k = key.toLowerCase();
+  if (/bite/.test(k) || /builder.*(snack|consum|food)/.test(k)) return "builderBite";
+  if (/soup/.test(k) || /(lab|research).*(snack|consum|food)/.test(k)) return "studySoup";
+  if (/^builder_?boost$/.test(k) || /builder.*potion/.test(k)) return "builderPotion";
+  if (/^lab_?boost$/.test(k) || /(research|lab).*potion/.test(k)) return "researchPotion";
+  if (/^pets?_?boost$/.test(k) || /pet.*potion/.test(k)) return "petPotion";
+  return null;
+}
+
+// The boost "channel" an upgrade belongs to (gear-ups in the Home Village use builders).
+function boostCat(it) {
+  if (it.cat === "builder") return "builder";
+  if (it.gear && it.src === "buildings") return "builder";
+  if (it.cat === "lab") return "lab";
+  if (it.cat === "pets") return "pets";
+  return null;
+}
+
+function allBoosts(acc) { return (acc.boostsExport || []).concat(acc.manualBoosts || []); }
+function activeBoosts(acc, cat, now) {
+  return allBoosts(acc).filter(b => BOOST_TYPES[b.kind] && BOOST_TYPES[b.kind].cat === cat && b.to > now)
+    .sort((a, b) => a.to - b.to);
+}
+
+function helperLevel(acc, it) {
+  const h = acc.helpers || {};
+  const c = boostCat(it);
+  if (c === "builder") return (h.apprentice && h.apprentice.lvl) || 0;
+  if (c === "lab") return (h.assistant && h.assistant.lvl) || 0;
+  return 0;
+}
+
+// Finish time for one upgrade, given its unboosted work left at export time.
+function boostedEnd(acc, it) {
+  if (!it.raw || !acc.exportTs) return it.end;
+  const t0 = acc.exportTs;
+  const cat = boostCat(it);
+  const iv = [];
+  if (cat) for (const b of allBoosts(acc)) {
+    const T = BOOST_TYPES[b.kind];
+    if (!T || T.cat !== cat) continue;
+    const from = Math.max(b.from, t0), to = b.to;
+    if (to > from) iv.push({ from, to, extra: T.extra });
+  }
+  const lvl = helperLevel(acc, it);
+  if (it.helperEnd && lvl && it.helperEnd > t0) iv.push({ from: t0, to: it.helperEnd, extra: lvl });
+  let work = it.raw * 1000, t = t0;
+  const marks = [...new Set(iv.flatMap(x => [x.from, x.to]).filter(x => x > t0))].sort((a, b) => a - b);
+  for (const next of marks.concat([Infinity])) {
+    const speed = 1 + iv.filter(x => x.from <= t && x.to > t).reduce((s, x) => s + x.extra, 0);
+    const span = next - t;
+    if (work <= speed * span) return Math.round(t + work / speed);
+    work -= speed * span;
+    t = next;
+  }
+  return it.end;
+}
+
+function recomputeEnds(acc) {
+  for (const it of acc.items || []) {
+    if (!it.raw) continue;
+    it.rawEnd = acc.exportTs + it.raw * 1000;
+    it.end = boostedEnd(acc, it);
+  }
+  (acc.items || []).sort((a, b) => a.end - b.end);
+}
+
+function fmtShort(ms) { return fmtLeft(ms).split(" ").slice(0, 2).join(" "); }
+
+// Helper status line: "Apprentice: Barbarian King · Assistant: Dragon 59m · next day 12h"
+function helperLine(acc, now) {
+  const h = acc.helpers;
+  if (!h || (!h.apprentice && !h.assistant)) return null;
+  const parts = [];
+  const desc = (cat, label) => {
+    const it = (acc.items || []).find(i => boostCat(i) === cat && i.helperAssigned && i.end > now);
+    if (!it) return `${label} idle`;
+    const working = it.helperEnd && it.helperEnd > now;
+    return `${label}: ${itemName(it)}${working ? " " + fmtShort(it.helperEnd - now) : ""}`;
+  };
+  if (h.apprentice) parts.push(desc("builder", "Apprentice"));
+  if (h.assistant) parts.push(desc("lab", "Assistant"));
+  const cd = Math.max(...Object.values(h).map(x => x.cooldownEnd || 0));
+  if (cd > now) parts.push(`new workday in ${fmtShort(cd - now)}`);
+  return parts.join(" · ");
+}
+
+// Goblin Builder / Researcher: more upgrades running than regular builders / one lab.
+function goblinCounts(acc, now) {
+  const total = builderCount(acc) || 0;
+  const busy = activeAt(acc, "builder", now).length;
+  const labs = activeAt(acc, "lab", now).length;
+  return { builder: total ? Math.max(0, busy - total) : 0, lab: Math.max(0, labs - 1) };
+}
+
+// Small pill in a section header: running boost (or a "+" to add one).
+function boostPills(parent, acc, secKey, now, redraws) {
+  const cat = secKey === "builder" ? "builder" : secKey === "lab" ? "lab" : secKey === "pets" ? "pets" : null;
+  if (!cat) return;
+  const act = activeBoosts(acc, cat, now);
+  const mk = (txt, url, strong, kind) => {
+    const p = parent.addStack(); p.layoutHorizontally(); p.centerAlignContent();
+    p.setPadding(1, kind ? 4 : 6, 1, 6); p.cornerRadius = 7;
+    p.backgroundColor = strong ? new Color(TH.accent.hex, 0.22) : (TH.track.alpha < 0.2 ? new Color(TH.track.hex, 0.12) : TH.track);
+    p.url = url;
+    const img = kind ? getBoostIcon(kind) : null;
+    if (img) { const im = p.addImage(img); im.imageSize = new Size(13, 13); p.addSpacer(3); }
+    else if (kind) txt = `${BOOST_TYPES[kind].emoji} ${txt}`;
+    shade(t2(p, txt, 8.5, strong ? TH.accent : TH.dim, "heavy"));
+    parent.addSpacer(4);
+  };
+  const base = URLScheme.forRunningScript();
+  if (act.length) {
+    for (const b of act) {
+      const T = BOOST_TYPES[b.kind];
+      mk(`${T.short} ${fmtShort(b.to - now)}`, `${base}?action=boosts`, true, b.kind);
+      redraws.push(b.to);
+    }
+  } else {
+    mk("+ boost", `${base}?action=addboost&tag=${encodeURIComponent(acc.tag)}&cat=${cat}`, false);
+  }
+}
+
+// ── Tap an upgrade → details pop-up ──
+function detailURL(acc, it) {
+  return `${URLScheme.forRunningScript()}?action=detail&tag=${encodeURIComponent(acc.tag)}&uid=${encodeURIComponent(it.uid || "")}`;
+}
+
+function fmtDate(ts) {
+  const df = new DateFormatter(); df.dateFormat = "EEE d MMM, HH:mm"; return df.string(new Date(ts));
+}
+function fmtHMS(ms) {
+  if (ms <= 0) return "done";
+  const s = Math.floor(ms / 1000), d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
+  const hms = `${h}:${String(m).padStart(2, "0")}:${String(x).padStart(2, "0")}`;
+  return d ? `${d}d ${hms}` : hms;
+}
+
+async function detailFlow(tag, uid) {
+  const db = loadDB();
+  const acc = db.accounts[tag];
+  const it = acc && (acc.items || []).find(i => i.uid === uid);
+  if (!it) { await info("Not found", "This upgrade isn't in the latest sync any more."); return; }
+  const now = Date.now(), cat = boostCat(it);
+  const typeName = { builder: "Builder", lab: "Laboratory", pets: "Pet House", bb: it.gear ? "Gear Up (Master Builder)" : "Builder Base", starlab: "Star Laboratory", other: "Upgrade" }[it.cat] || "Upgrade";
+  const boosts = cat ? activeBoosts(acc, cat, now) : [];
+  const lines = [
+    `Time left: ${fmtHMS(it.end - now)}`,
+    `Finishes: ${fmtDate(it.end)}`,
+    `Type: ${typeName}${it.goblin ? " · Goblin" : ""}`,
+    `Boost: ${boosts.length ? boosts.map(b => `${BOOST_TYPES[b.kind].name} (${fmtShort(b.to - now)} left)`).join(", ") : "none running"}`,
+  ];
+  if (it.helperAssigned) {
+    const who = cat === "lab" ? "Lab Assistant" : "Builder's Apprentice";
+    lines.push(`${who}: ${it.helperEnd && it.helperEnd > now ? `working, ${fmtShort(it.helperEnd - now)} left` : "assigned"}`);
+  }
+  if (it.rawEnd && Math.abs(it.rawEnd - it.end) > 60000) lines.push(`Without boosts: ${fmtDate(it.rawEnd)}`);
+  lines.push(`Data from export: ${fmtDate(acc.lastExport)}`);
+  const a = new Alert();
+  a.title = `${itemName(it)} → ${it.to}`;
+  a.message = lines.join("\n");
+  a.addAction("Open Clash");
+  a.addAction("All timers");
+  a.addCancelAction("Close");
+  const i = await a.present();
+  if (i === 0) Safari.open(CLASH_URL);
+  if (i === 1) await viewFlow();
+}
+
+// ── Menu: add / view boosts ──
+async function addBoostFlow(tagPre, catPre) {
+  const db = loadDB();
+  let acc = tagPre ? db.accounts[tagPre] : null;
+  if (!acc) acc = await pickAccount(db, "Add a boost to which account?");
+  if (!acc) return;
+  const kinds = BOOST_ORDER.filter(k => !catPre || BOOST_TYPES[k].cat === catPre);
+  const a = new Alert(); a.title = `Add boost · ${acc.name}`;
+  a.message = "Use this for a potion or snack you started after your last export.";
+  for (const k of kinds) a.addAction(`${BOOST_TYPES[k].emoji} ${BOOST_TYPES[k].name}`);
+  a.addCancelAction("Cancel");
+  const ki = await a.presentSheet(); if (ki < 0) return;
+  const kind = kinds[ki];
+  const n = new Alert(); n.title = `How many ${BOOST_TYPES[kind].name}s?`;
+  n.message = "Using more than one makes it last longer (1 hour each), not faster.";
+  for (const c of [1, 2, 3, 4, 5]) n.addAction(String(c));
+  n.addCancelAction("Cancel");
+  const ci = await n.presentSheet(); if (ci < 0) return;
+  const w = new Alert(); w.title = "When did you start it?";
+  const ago = [0, 5, 10, 15, 30, 45];
+  for (const m of ago) w.addAction(m ? `${m} min ago` : "Just now");
+  w.addAction("Custom…"); w.addCancelAction("Cancel");
+  const wi = await w.presentSheet(); if (wi < 0) return;
+  let mins = ago[wi];
+  if (wi === ago.length) {
+    const t = new Alert(); t.title = "Started how many minutes ago?"; t.addTextField("e.g. 20", "0");
+    t.addAction("Save"); t.addCancelAction("Cancel");
+    if ((await t.present()) < 0) return;
+    mins = Math.max(0, parseInt(t.textFieldValue(0), 10) || 0);
+  }
+  const from = Date.now() - mins * 60000;
+  const a2 = db.accounts[acc.tag];
+  a2.manualBoosts = (a2.manualBoosts || []).filter(b => b.to > Date.now());
+  a2.manualBoosts.push({ kind, from, to: from + (ci + 1) * 3600e3, manual: true });
+  recomputeEnds(a2);
+  saveDB(db);
+  await rescheduleAll(db);
+  await info("Boost added", `${BOOST_TYPES[kind].name} on ${a2.name}: timers and alerts updated.`);
+}
+
+async function boostsFlow() {
+  while (true) {
+    const db = loadDB(), now = Date.now();
+    const rows = [];
+    for (const acc of orderedAccounts(db))
+      for (const b of allBoosts(acc)) if (b.to > now && BOOST_TYPES[b.kind]) rows.push({ acc, b });
+    const t = new UITable(); t.showSeparators = true;
+    const h = new UITableRow(); h.isHeader = true; h.height = 60;
+    h.addText("Active boosts", rows.length ? "Tap one you added by hand to remove it" : "Nothing running right now");
+    t.addRow(h);
+    let removed = false;
+    for (const { acc, b } of rows) {
+      const r = new UITableRow(); r.height = 56;
+      const T = BOOST_TYPES[b.kind];
+      const bi = getBoostIcon(b.kind);
+      if (bi) { const c = r.addImage(bi); c.widthWeight = 12; }
+      const tc = r.addText(`${bi ? "" : T.emoji + " "}${T.name} · ${acc.name}`, `${fmtShort(b.to - now)} left · ${b.manual ? "added by you" : "from export"}`);
+      tc.widthWeight = 88;
+      if (b.manual) {
+        r.dismissOnSelect = true;
+        r.onSelect = () => {
+          const a = db.accounts[acc.tag];
+          a.manualBoosts = (a.manualBoosts || []).filter(x => x !== b && !(x.kind === b.kind && x.from === b.from));
+          recomputeEnds(a); saveDB(db); removed = true;
+        };
+      }
+      t.addRow(r);
+    }
+    const add = new UITableRow(); add.height = 50;
+    add.addText("＋ Add a boost").titleColor = new Color("#0a84ff");
+    add.dismissOnSelect = true;
+    let wantAdd = false;
+    add.onSelect = () => { wantAdd = true; };
+    t.addRow(add);
+    await t.present(false);
+    if (removed) { await rescheduleAll(loadDB()); continue; }
+    if (wantAdd) { await addBoostFlow(); continue; }
+    return;
+  }
+}
+
+// ──────────────────────────────── In-app UI ────────────────────────────────
+
+async function pickAccount(db, title) {
+  const accs = orderedAccounts(db);
+  if (!accs.length) { await info("No accounts yet", "Copy a Data Export in Clash first."); return null; }
+  const a = new Alert(); a.title = title;
+  for (const acc of accs) a.addAction(`${acc.name}  (TH${acc.th || "?"} ${acc.tag})`);
+  a.addCancelAction("Cancel");
+  const i = await a.presentSheet();
+  return i < 0 ? null : accs[i];
+}
+
+async function info(title, msg) {
+  const a = new Alert(); a.title = title; a.message = msg || ""; a.addAction("OK");
+  await a.present();
+}
+
+async function renameFlow() {
+  const db = loadDB();
+  const acc = await pickAccount(db, "Rename which account?");
+  if (!acc) return;
+  const a = new Alert(); a.title = `Name for ${acc.tag}`; a.message = `Currently: ${acc.name}`;
+  const used = new Set(Object.values(db.accounts).map(x => x.name));
+  const opts = NAME_SUGGESTIONS.filter(n => !used.has(n));
+  for (const n of opts) a.addAction(n);
+  a.addAction("Type a name…");
+  a.addCancelAction("Cancel");
+  const i = await a.presentSheet();
+  if (i < 0) return;
+  let name = opts[i];
+  if (i === opts.length) {
+    const t = new Alert(); t.title = "Account name";
+    t.addTextField("Name", acc.name); t.addAction("Save"); t.addCancelAction("Cancel");
+    if ((await t.present()) < 0) return;
+    name = t.textFieldValue(0).trim();
+  }
+  if (!name) return;
+  db.accounts[acc.tag].name = name;
+  saveDB(db);
+  await rescheduleAll(db);
+  await info("Renamed", `${acc.tag} is now “${name}”.`);
+}
+
+async function buildersFlow() {
+  const db = loadDB();
+  const acc = await pickAccount(db, "Set builder count for…");
+  if (!acc) return;
+  const t = new Alert();
+  t.title = `Builders on ${acc.name}`;
+  t.message = `Detected ${acc.huts || "?"} Builder's Huts. If you also have the 6th builder (B.O.B), enter your real total. Leave empty to use the detected count.`;
+  t.addTextField("e.g. 6", acc.builders ? String(acc.builders) : "");
+  t.addAction("Save"); t.addCancelAction("Cancel");
+  if ((await t.present()) < 0) return;
+  const v = parseInt(t.textFieldValue(0), 10);
+  db.accounts[acc.tag].builders = v > 0 ? v : null;
+  saveDB(db);
+  await rescheduleAll(db);
+}
+
+async function removeFlow() {
+  const db = loadDB();
+  const acc = await pickAccount(db, "Remove which account?");
+  if (!acc) return;
+  const c = new Alert(); c.title = `Remove ${acc.name}?`;
+  c.message = "Its upgrades and alerts will be deleted. Importing its export again adds it back.";
+  c.addDestructiveAction("Remove"); c.addCancelAction("Cancel");
+  if ((await c.present()) < 0) return;
+  delete db.accounts[acc.tag];
+  saveDB(db);
+  await rescheduleAll(db);
+}
+
+async function viewFlow() {
+  const db = loadDB();
+  const now = Date.now();
+  const table = new UITable();
+  table.showSeparators = true;
+  const accs = orderedAccounts(db);
+  if (!accs.length) {
+    const r = new UITableRow(); r.addText("No accounts yet", "Copy a Data Export in Clash, then run this script.");
+    r.height = 70; table.addRow(r);
+  }
+  for (const a of accs) {
+    const h = new UITableRow();
+    h.isHeader = true; h.height = 64;
+    h.backgroundColor = new Color("#1d2740");
+    const hc = h.addText(`${a.name}  ·  TH${a.th || "?"}`, `${summaryLine(a, now)}\nExported ${fmtAgo(a.lastExport)}`);
+    hc.titleColor = new Color("#e3b341"); hc.subtitleColor = Color.white();
+    hc.titleFont = Font.boldSystemFont(16); hc.subtitleFont = Font.systemFont(12);
+    table.addRow(h);
+    const active = (a.items || []).filter(i => i.end > now);
+    if (!active.length) {
+      const r = new UITableRow(); r.addText("Nothing upgrading").titleColor = new Color("#f0883e"); table.addRow(r);
+    }
+    for (const it of active) {
+      const r = new UITableRow(); r.height = 52;
+      const left = r.addText(`${CAT[it.cat].emoji}  ${itemLabel(it)}`);
+      left.widthWeight = 65; left.titleFont = Font.systemFont(14);
+      const right = r.addText(fmtLeft(it.end - now), fmtClock(it.end));
+      right.widthWeight = 35; right.rightAligned();
+      right.titleFont = Font.semiboldSystemFont(14); right.subtitleFont = Font.systemFont(11);
+      table.addRow(r);
+    }
+  }
+  await table.present(false);
+}
+
+async function themeFlow() {
+  const a = new Alert();
+  a.title = "Default theme";
+  a.message = "Used by every widget without its own theme.\nTo give one widget a different theme, add it to the widget's Parameter, e.g.  2, clash";
+  for (const k of THEME_ORDER) a.addAction(THEMES[k].name);
+  a.addCancelAction("Cancel");
+  const i = await a.presentSheet();
+  if (i < 0) return;
+  const st = loadSettings(); st.theme = THEME_ORDER[i]; saveSettings(st);
+  const db = loadDB();
+  const acc = orderedAccounts(db)[0];
+  await buildWidget(db, "large", acc ? acc.tag : null).presentLarge();
+}
+
+async function progressFlow() {
+  const a = new Alert();
+  a.title = "Progress style";
+  a.message = "Used by every account widget without its own style.\nTo give one widget a different style, add it to the widget's Parameter, e.g.  2, rings";
+  for (const k of PROG_ORDER) a.addAction(PROGRESS[k]);
+  a.addCancelAction("Cancel");
+  const i = await a.presentSheet();
+  if (i < 0) return;
+  const st = loadSettings(); st.progress = PROG_ORDER[i]; saveSettings(st);
+  const db = loadDB();
+  const acc = orderedAccounts(db)[0];
+  await buildWidget(db, "large", acc ? acc.tag : null).presentLarge();
+}
+
+async function iconTestFlow() {
+  const db = loadDB();
+  await refreshRemoteNames().catch(() => {});
+  const items = [];
+  const seen = new Set();
+  for (const a of orderedAccounts(db)) for (const it of a.items || []) {
+    if (seen.has(iconKey(it))) continue; seen.add(iconKey(it)); items.push(it);
+  }
+  if (!items.length) { await info("Nothing to test", "Sync an account first."); return; }
+  const report = await ensureIcons(items, 200, true);
+  const boostRep = await ensureBoostIcons(true);
+  const okN = report.filter(r => r.ok).length;
+  const t = new UITable(); t.showSeparators = true;
+  const h = new UITableRow(); h.isHeader = true; h.height = 60;
+  h.addText(`Icons: ${okN} of ${report.length} found · potions & snacks: ${boostRep.filter(r => r.ok).length} of ${boostRep.length}`, "Screenshot this and send it to Claude");
+  t.addRow(h);
+  for (const r of boostRep) {
+    const row = new UITableRow(); row.height = 56;
+    const img = r.ok ? getBoostIcon(r.kind) : null;
+    if (img) { const c = row.addImage(img); c.widthWeight = 12; }
+    else { const c = row.addText("✕"); c.widthWeight = 12; c.titleColor = new Color("#f85149"); }
+    const c2 = row.addText(BOOST_TYPES[r.kind].name, r.ok ? (r.url || "").replace(ICON_BASE, "") : "not found — emoji used instead");
+    c2.widthWeight = 88; c2.subtitleFont = Font.systemFont(10);
+    t.addRow(row);
+  }
+  for (const r of report) {
+    const row = new UITableRow(); row.height = r.ok ? 56 : 92;
+    const img = r.ok ? getIcon(r.it) : null;
+    if (img) { const c = row.addImage(img); c.widthWeight = 12; }
+    else { const c = row.addText("✕"); c.widthWeight = 12; c.titleColor = new Color("#f85149"); }
+    const c2 = row.addText(itemName(r.it) + (isBuildingLike(r.it) ? ` (lv ${r.it.to})` : ""),
+      r.ok ? (r.url || "").replace(ICON_BASE, "")
+           : `not found · id ${r.it.id} · ${REMOTE_SECT[r.it.id] || "no category"} · tried ${(r.tried || []).length}: ${(r.tried || []).slice(0, 3).join(", ")}`);
+    c2.widthWeight = 88; c2.subtitleFont = Font.systemFont(10);
+    t.addRow(row);
+  }
+  await t.present(false);
+}
+
+async function menu(importMsg) {
+  while (true) {
+    const db = loadDB();
+    const n = Object.keys(db.accounts).length;
+    const a = new Alert();
+    a.title = "CoC Upgrade Tracker";
+    a.message = (importMsg ? importMsg + "\n\n" : "") + `${n} account${n === 1 ? "" : "s"} tracked.`;
+    importMsg = null;
+    const actions = [
+      ["📋 View all upgrades", viewFlow],
+      ["⚗️ Add a boost (potion / snack)", () => addBoostFlow()],
+      ["⏱️ Active boosts", boostsFlow],
+      ["✏️ Rename an account", renameFlow],
+      ["🔨 Set builder count", buildersFlow],
+      ["🖼️ Preview widget", async () => {
+        const db = loadDB();
+        const acc = await pickAccount(db, "Preview which widget?");
+        if (acc) await buildWidget(db, "large", acc.tag).presentLarge();
+      }],
+      ["🖼️ Preview overview widget", async () => { await buildWidget(loadDB(), "large").presentLarge(); }],
+      [`🎨 Theme: ${THEMES[loadSettings().theme || "elixir"].name}`, themeFlow],
+      [`📊 Progress style: ${PROGRESS[loadSettings().progress] ? PROGRESS[loadSettings().progress] : PROGRESS.bars}`, progressFlow],
+      [`⚔️ War alert: ${(loadSettings().warAlert ?? 30) ? (loadSettings().warAlert ?? 30) + " min before end" : "off"}`, warSettingsFlow],
+      ["🧪 Test war data", warTestFlow],
+      [`🔑 Backup API key: ${(loadSettings().apiKey || "").trim() ? "added" : "none"}`, apiKeyFlow],
+      ["🧪 Test icons (ClashKing)", iconTestFlow],
+      ["🔔 Send a test notification", async () => { await notifyNow("CoC Tracker", "Notifications are working ✅"); }],
+      ["🗑️ Remove an account", removeFlow],
+    ];
+    for (const [label] of actions) a.addAction(label);
+    a.addCancelAction("Done");
+    const i = await a.presentSheet();
+    if (i < 0) return;
+    await actions[i][1]();
+  }
+}
+
+function importMessage(res) {
+  const a = res.acc;
+  if (res.status === "invalid") return null;
+  if (res.status === "duplicate") return `Clipboard export for ${a.name} is already imported.`;
+  const now = Date.now();
+  const extra = res.status === "new" ? "\nNew account — use “Rename” to give it a name." : "";
+  const running = (a.items || []).filter(i => i.end > now).length;
+  const nb = (a.boostsExport || []).length;
+  return `✅ ${a.name} updated (${running} upgrade${running === 1 ? "" : "s"} running)` +
+    (nb ? `\n${nb} running boost${nb > 1 ? "s" : ""} detected: ${a.boostsExport.map(b => BOOST_TYPES[b.kind].name).join(", ")}` : "") +
+    `\n${summaryLine(a, now)}${extra}`;
+}
+
+// ───────────────────────────────── Main ────────────────────────────────────
+
+async function main() {
+  initStorage();
+  loadNameCache();
+
+  if (config.runsInWidget) {
+    const db = loadDB();
+    try {
+      const { acct } = parseParam(args.widgetParameter);
+      const one = findAccount(db, acct);
+      await refreshWars(one ? [one] : orderedAccounts(db), false);
+      saveDB(db);
+      await scheduleWarAlerts(db);
+    } catch (e) { }
+    // A few missing pictures per refresh (new upgrades synced in the background).
+    try {
+      const { acct } = parseParam(args.widgetParameter);
+      const one = findAccount(db, acct);
+      const items = (one ? [one] : orderedAccounts(db)).flatMap(a => a.items || []);
+      await ensureIcons(items, 4);
+      await ensureBoostIcons(false);
+    } catch (e) { }
+    const w = buildWidget(db, config.widgetFamily, args.widgetParameter);
+    Script.setWidget(w);
+    Script.complete();
+    return;
+  }
+
+  // Read export: Shortcut input first, then clipboard.
+  let input = args.shortcutParameter;
+  if (input && typeof input !== "string") input = Array.isArray(input) ? input.join("\n") : JSON.stringify(input);
+  let text = input || null;
+  if (!parseExport(text || "")) {
+    try { text = Pasteboard.paste(); } catch (e) { text = null; }
+  }
+
+  // Big downloads only when the app is open: a Shortcuts automation runs in the
+  // background with little memory and time, and iOS pauses it after a failed run.
+  if (config.runsInApp) await refreshRemoteNames().catch(() => {});
+  const res = await importExport(text || "");
+  const msg = importMessage(res);
+
+
+  const qp = args.queryParameters || {};
+  if (config.runsInApp && qp.action === "detail") {
+    await detailFlow(qp.tag, qp.uid);
+  } else if (config.runsInApp && qp.action === "addboost") {
+    await addBoostFlow(qp.tag, qp.cat);
+  } else if (config.runsInApp && qp.action === "boosts") {
+    await boostsFlow();
+  } else if (config.runsInApp && qp.action === "sync") {
+    // Opened from the widget's ⟳ pill: just sync and say so.
+    await info(msg ? "Clash sync" : "Nothing new to sync",
+      msg || "Copy a fresh export first:\nClash → Settings → More Settings → Data Export → Copy");
+  } else if (config.runsInApp) {
+    await menu(msg);
+  } else {
+    // Background run (Shortcuts automation)
+    if (CONFIRM_IMPORT && (res.status === "new" || res.status === "updated")) {
+      await notifyNow(`✅ ${res.acc.name} synced`, summaryLine(res.acc, Date.now()));
+    }
+    Script.setShortcutOutput(msg || "No new Clash export on clipboard.");
+    // Keep the background run short: wars and pictures are fetched by the widget
+    // and when you open the app.
+    Script.complete();
+    return;
+  }
+  // Fetch any missing unit pictures last, so alerts are never held up by it.
+  if (res.status === "new" || res.status === "updated") {
+    try {
+      const db = loadDB();
+      await refreshWars(orderedAccounts(db), false);
+      saveDB(db);
+      await scheduleWarAlerts(db);
+    } catch (e) { }
+    try { await ensureIcons(res.acc.items || [], config.runsInApp ? 25 : 10); } catch (e) { }
+    try { await ensureBoostIcons(false); } catch (e) { }
+  }
+  Script.complete();
+}
+
+if (typeof module !== "undefined" && module.exports && typeof config === "undefined") {
+  // Loaded by a test harness — export internals, don't run.
+  module.exports = { parseExport, plannedNotifications, fmtLeft, classify, itemLabel, buildWidget, importExport, initStorage, loadDB };
+} else {
+  await main();
+}
